@@ -22,11 +22,11 @@ import PageHeader from "@/components/PageHeader"
 import LoadingSpinner from "@/components/LoadingSpinner"
 import { useT } from "@/i18n/I18nProvider"
 
+import type { Quote } from "@/types"
+
 const DEFAULT_INQUIRY = `We need 500 units of LED lights, 220V, EU plug, CE certificate required, delivery to Germany.
 
 Could you also advise on the best options for office ceiling lighting? Our budget is around $15 per unit.`
-
-type Quote = ReturnType<typeof generateQuote>
 
 export default function InquiryPage() {
   const { t } = useT()
@@ -53,7 +53,7 @@ export default function InquiryPage() {
     setQuote(null)
     setNoMatchResponse(null)
     await new Promise(r => setTimeout(r, 1200))
-    const res = analyzeAndMatch(rawMessage)
+    const res = await analyzeAndMatch(rawMessage)
     setResult(res)
     setAnalyzing(false)
 
@@ -78,7 +78,7 @@ export default function InquiryPage() {
     if (!result) return
     setGeneratingQuote(true)
     await new Promise(r => setTimeout(r, 800))
-    const q = generateQuote(
+    const q = await generateQuote(
       result.inquiry.id,
       result.matchedProducts.map(p => p.product_id),
       "Please confirm MOQ and lead time."

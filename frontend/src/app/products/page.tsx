@@ -1,14 +1,14 @@
 "use client"
 
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { Upload, Search, Trash2, ChevronRight, Package } from "lucide-react"
 import type { Product } from "@/types"
 import {
   getAllProducts,
-  addProducts,
+  uploadFile,
   deleteProduct,
+  refreshProducts,
 } from "@/lib/store"
-import { parseFile } from "@/lib/ai/file-parser"
 import PageHeader from "@/components/PageHeader"
 import EmptyState from "@/components/EmptyState"
 import { useT } from "@/i18n/I18nProvider"
@@ -21,6 +21,10 @@ export default function ProductsPage() {
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [uploadMsg, setUploadMsg] = useState<{ type: "success"; text: string } | { type: "error"; text: string } | null>(null)
 
+  useEffect(() => {
+    refreshProducts().then(setProducts)
+  }, [])
+
   const filtered = useMemo(() => {
     if (!search.trim()) return products
     const q = search.toLowerCase()
@@ -29,7 +33,7 @@ export default function ProductsPage() {
     )
   }, [products, search])
 
-  const refresh = () => setProducts(getAllProducts())
+  const refresh = async () => setProducts(await refreshProducts())
 
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -37,11 +41,9 @@ export default function ProductsPage() {
     setUploading(true)
     setUploadMsg(null)
     try {
-      const result = await parseFile(file)
-      const count = result.products.length
-      addProducts(result.products)
-      refresh()
-      setUploadMsg({ type: "success", text: t.products.parsedSuccess(file.name, count) })
+      const newProducts = await uploadFile(file)
+      setProducts(newProducts)
+      setUploadMsg({ type: "success", text: t.products.parsedSuccess(file.name, newProducts.length) })
     } catch (err: any) {
       setUploadMsg({ type: "error", text: err.message || t.common.parseFailed })
     } finally {

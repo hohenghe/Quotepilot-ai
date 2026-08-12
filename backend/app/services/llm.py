@@ -6,6 +6,7 @@ import httpx
 
 from app.core.config import settings, is_llm_available
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [LLM] %(message)s")
 logger = logging.getLogger(__name__)
 
 TRANSLATE_SYSTEM = "You are a professional translator. Translate the following text to English. Return ONLY the English translation, nothing else — no explanations, no notes."
@@ -244,16 +245,16 @@ async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
 
     if _has_non_ascii(message) and is_llm_available():
         try:
-            logger.info("Non-English detected, translating...")
+            logger.warning("Non-English detected, translating...")
             message = await _translate_to_english(message)
             translated = True
-            logger.info("Translated inquiry: %s", message[:200])
+            logger.warning("Translated inquiry: %s", message[:200])
         except Exception as e:
             logger.warning("Translation failed, using original: %s", e)
 
     if is_llm_available():
         try:
-            logger.info("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
+            logger.warning("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
             result = await _analyze_with_ai(message)
             result["ai_used"] = True
             result["translated"] = translated
@@ -261,7 +262,7 @@ async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
         except Exception as e:
             logger.warning("AI analyze failed, falling back to mock: %s", e)
     else:
-        logger.info("LLM not configured, using mock analysis")
+        logger.warning("LLM not configured, using mock analysis")
     result = await _analyze_mock(message)
     result["ai_used"] = False
     result["translated"] = translated

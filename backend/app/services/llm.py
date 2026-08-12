@@ -226,13 +226,8 @@ async def _analyze_mock(raw_message: str) -> dict[str, Any]:
 # Translation
 # ═══════════════════════════════════════════════════════════════════
 
-def _is_mostly_english(text: str) -> bool:
-    total = len(text.strip())
-    if total == 0:
-        return True
-    ascii_count = sum(1 for c in text if ord(c) < 128 and c.isalpha())
-    non_ascii = sum(1 for c in text if ord(c) > 127)
-    return non_ascii == 0 or (ascii_count / max(total, 1)) > 0.5
+def _has_non_ascii(text: str) -> bool:
+    return any(ord(c) > 127 for c in text)
 
 
 async def _translate_to_english(text: str) -> str:
@@ -247,7 +242,7 @@ async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
     message = raw_message
     translated = False
 
-    if not _is_mostly_english(message) and is_llm_available():
+    if _has_non_ascii(message) and is_llm_available():
         try:
             logger.info("Non-English detected, translating...")
             message = await _translate_to_english(message)

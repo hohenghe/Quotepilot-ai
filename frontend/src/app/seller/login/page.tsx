@@ -18,7 +18,7 @@ export default function SellerLoginPage() {
     setError(null)
     try {
       const res = mode === "register"
-        ? await register(data.email, data.password, data.name)
+        ? await register(data.email, data.password, data.name, data.country, data.phone)
         : await login(data.email, data.password)
       saveAuth(res.token, {
         user_id: res.user_id,

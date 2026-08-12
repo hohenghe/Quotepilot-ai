@@ -268,10 +268,10 @@ export async function login(email: string, password: string): Promise<AuthRespon
   })
 }
 
-export async function register(email: string, password: string, name: string): Promise<AuthResponse> {
+export async function register(email: string, password: string, name: string, country: string, phone?: string): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name }),
+    body: JSON.stringify({ email, password, name, country, phone: phone || null }),
   })
 }
 

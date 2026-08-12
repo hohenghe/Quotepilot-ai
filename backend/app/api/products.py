@@ -24,7 +24,7 @@ def _scope_by_seller(query, user: User):
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=2000),
     category: str | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
@@ -192,7 +192,7 @@ async def product_stats(
 @router.get("/admin/all", response_model=ProductListResponse)
 async def admin_list_all_products(
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=2000),
     search: str | None = None,
     seller_id: int | None = None,
     db: AsyncSession = Depends(get_db),

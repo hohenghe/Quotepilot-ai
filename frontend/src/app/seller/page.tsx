@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Upload, Trash2, Search, LogOut, Package, Mail, FileText, Copy } from "lucide-react"
 import { isAuthenticated, isSeller, getUser, logout } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts } from "@/lib/api-client"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import type { SellerInquiryItem } from "@/lib/api-client"
 import type { Product } from "@/types"
@@ -20,13 +20,22 @@ export default function SellerPage() {
   }, [router])
 
   const [tab, setTab] = useState<"products" | "inquiries">("products")
-  const [products, setProducts] = useState<Product[]>(() => {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("quotepilot_products")
-      return raw ? JSON.parse(raw) : []
+  const [products, setProducts] = useState<Product[]>([])
+  const [productsLoading, setProductsLoading] = useState(true)
+
+  const loadProducts = useCallback(async () => {
+    setProductsLoading(true)
+    try {
+      const data = await getSellerProducts()
+      setProducts(data.items)
+    } catch { } finally {
+      setProductsLoading(false)
     }
-    return []
-  })
+  }, [])
+
+  useEffect(() => {
+    if (isAuthenticated() && isSeller()) loadProducts()
+  }, [loadProducts])
   const [search, setSearch] = useState("")
   const [uploading, setUploading] = useState(false)
   const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
@@ -64,6 +73,7 @@ export default function SellerPage() {
     try {
       await uploadProducts(file)
       setMsg({ type: "success", text: `${file.name} uploaded successfully` })
+      await loadProducts()
     } catch (err: any) {
       setMsg({ type: "error", text: err.message || "Upload failed" })
     } finally {

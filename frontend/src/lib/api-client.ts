@@ -351,3 +351,7 @@ export async function generateSellerReply(inquiryId: number): Promise<{ subject:
     body: JSON.stringify({ inquiry_id: inquiryId }),
   })
 }
+
+export async function getSellerProducts(): Promise<{ total: number; items: Product[] }> {
+  return await request("/api/products?page=1&page_size=1000")
+}

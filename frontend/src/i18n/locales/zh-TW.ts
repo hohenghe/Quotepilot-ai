@@ -13,6 +13,7 @@ const zhTW = {
     units: "個",
     perUnit: "/個",
     days: "天",
+    selectAll: "全選",
     parseFailed: "解析失敗",
   },
   sidebar: {
@@ -121,10 +122,12 @@ const zhTW = {
     aiReply: "AI 回覆",
     generateReply: "生成 AI 回覆",
     generating: "生成中...",
+    deleting: "刪除中...",
     copy: "複製",
     signOut: "登出",
     productsCount: (n: number) => `${n} 個產品`,
     sku: "SKU",
+    inquiriesDesc: "選擇了您產品的買家",
   },
   admin: {
     portalTitle: "管理面板",

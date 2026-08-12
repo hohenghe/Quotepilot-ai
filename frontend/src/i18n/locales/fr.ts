@@ -13,6 +13,7 @@ const fr = {
     units: "unités",
     perUnit: "/unité",
     days: "jours",
+    selectAll: "Tout Sélectionner",
     parseFailed: "Échec de l'analyse",
   },
   sidebar: {
@@ -122,10 +123,12 @@ const fr = {
     aiReply: "Réponse IA",
     generateReply: "Générer une Réponse IA",
     generating: "Génération...",
+    deleting: "Suppression...",
     copy: "Copier",
     signOut: "Déconnexion",
     productsCount: (n: number) => `${n} produits`,
     sku: "SKU",
+    inquiriesDesc: "Acheteurs ayant sélectionné vos produits",
   },
   admin: {
     portalTitle: "Panneau d'Administration",

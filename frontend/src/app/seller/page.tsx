@@ -2,14 +2,16 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { Upload, Trash2, Search, LogOut, Package, Mail, FileText, Copy } from "lucide-react"
+import { Upload, Trash2, Search, LogOut, Package, Mail, FileText, Copy, CheckSquare, Square } from "lucide-react"
 import { isAuthenticated, isSeller, getUser, logout } from "@/lib/auth"
 import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts } from "@/lib/api-client"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import { useT } from "@/i18n/I18nProvider"
 import type { SellerInquiryItem } from "@/lib/api-client"
 import type { Product } from "@/types"
 
 export default function SellerPage() {
+  const { t } = useT()
   const router = useRouter()
   const user = getUser()
 
@@ -22,6 +24,11 @@ export default function SellerPage() {
   const [tab, setTab] = useState<"products" | "inquiries">("products")
   const [products, setProducts] = useState<Product[]>([])
   const [productsLoading, setProductsLoading] = useState(true)
+  const [search, setSearch] = useState("")
+  const [uploading, setUploading] = useState(false)
+  const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
+  const [deleting, setDeleting] = useState(false)
 
   const loadProducts = useCallback(async () => {
     setProductsLoading(true)
@@ -36,9 +43,6 @@ export default function SellerPage() {
   useEffect(() => {
     if (isAuthenticated() && isSeller()) loadProducts()
   }, [loadProducts])
-  const [search, setSearch] = useState("")
-  const [uploading, setUploading] = useState(false)
-  const [msg, setMsg] = useState<{ type: "success" | "error"; text: string } | null>(null)
 
   // Inquiries state
   const [inquiries, setInquiries] = useState<SellerInquiryItem[]>([])
@@ -65,6 +69,25 @@ export default function SellerPage() {
     return products.filter(p => p.name.toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q))
   }, [products, search])
 
+  const allSelected = filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))
+
+  const toggleSelectAll = () => {
+    if (allSelected) {
+      setSelectedIds(new Set())
+    } else {
+      setSelectedIds(new Set(filtered.map(p => p.id)))
+    }
+  }
+
+  const toggleSelect = (id: number) => {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   const handleUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (!file) return
@@ -82,9 +105,27 @@ export default function SellerPage() {
     }
   }
 
-  const handleDelete = (id: number) => {
-    setProducts(prev => prev.filter(p => p.id !== id))
-    localStorage.setItem("quotepilot_products", JSON.stringify(products.filter(p => p.id !== id)))
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return
+    setDeleting(true)
+    try {
+      const getApiBaseUrl = () => {
+        let url = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+        if (!url.startsWith("http")) url = "https://" + url
+        return url
+      }
+      const token = localStorage.getItem("quotepilot_token")
+      for (const id of selectedIds) {
+        await fetch(`${getApiBaseUrl()}/api/products/${id}`, {
+          method: "DELETE",
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        })
+      }
+      setSelectedIds(new Set())
+      await loadProducts()
+    } catch { } finally {
+      setDeleting(false)
+    }
   }
 
   const handleGenerateReply = async (inquiryId: number) => {
@@ -110,7 +151,7 @@ export default function SellerPage() {
         <div className="max-w-5xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <Package className="w-5 h-5 text-emerald-600" />
-            <span className="font-semibold text-gray-900">Seller Portal</span>
+            <span className="font-semibold text-gray-900">{t.seller.portalTitle}</span>
           </div>
           <div className="flex items-center gap-3">
             <LanguageSwitcher />
@@ -127,7 +168,7 @@ export default function SellerPage() {
               tab === "products" ? "border-emerald-500 text-emerald-600" : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
-            My Products ({products.length})
+            {t.seller.myProducts} ({products.length})
           </button>
           <button
             onClick={() => setTab("inquiries")}
@@ -135,7 +176,7 @@ export default function SellerPage() {
               tab === "inquiries" ? "border-emerald-500 text-emerald-600" : "border-transparent text-gray-500 hover:text-gray-700"
             }`}
           >
-            Received Inquiries {inquiries.length > 0 ? `(${inquiries.length})` : ""}
+            {t.seller.receivedInquiries} {inquiries.length > 0 ? `(${inquiries.length})` : ""}
           </button>
         </nav>
       </header>
@@ -143,16 +184,28 @@ export default function SellerPage() {
       <div className="max-w-5xl mx-auto px-4 py-8">
         {tab === "products" && (
           <>
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4">
               <div>
-                <h1 className="text-xl font-bold text-gray-900">My Products</h1>
-                <p className="text-sm text-gray-500">{products.length} products</p>
+                <h1 className="text-xl font-bold text-gray-900">{t.seller.myProducts}</h1>
+                <p className="text-sm text-gray-500">{t.seller.productsCount(products.length)}</p>
               </div>
-              <label className="btn-primary cursor-pointer">
-                <Upload className="w-4 h-4" />
-                {uploading ? "Uploading..." : "Upload CSV"}
-                <input type="file" className="hidden" accept=".csv" onChange={handleUpload} disabled={uploading} />
-              </label>
+              <div className="flex items-center gap-2">
+                {selectedIds.size > 0 && (
+                  <button
+                    className="btn-primary !bg-red-600 hover:!bg-red-700"
+                    onClick={handleDeleteSelected}
+                    disabled={deleting}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                    {deleting ? t.seller.deleting : `${t.common.delete} (${selectedIds.size})`}
+                  </button>
+                )}
+                <label className="btn-primary cursor-pointer">
+                  <Upload className="w-4 h-4" />
+                  {uploading ? t.seller.uploading : t.seller.uploadCsv}
+                  <input type="file" className="hidden" accept=".csv" onChange={handleUpload} disabled={uploading} />
+                </label>
+              </div>
             </div>
 
             {msg && (
@@ -161,44 +214,63 @@ export default function SellerPage() {
               </div>
             )}
 
-            <div className="relative mb-6">
+            <div className="relative mb-4">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input className="input-field pl-10 bg-white" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+              <input className="input-field pl-10 bg-white" placeholder={t.seller.search} value={search} onChange={e => setSearch(e.target.value)} />
             </div>
 
-            {filtered.map(p => (
-              <div key={p.id} className="bg-white rounded-xl p-4 shadow-sm border mb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <h3 className="font-semibold text-gray-900">{p.name}</h3>
-                    <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
-                      {p.sku && <span>SKU: {p.sku}</span>}
-                      {p.moq && <span>MOQ: {p.moq}</span>}
-                      <span className="badge badge-blue">{p.category}</span>
+            {filtered.length > 0 && (
+              <label className="flex items-center gap-2 mb-3 px-1 cursor-pointer text-sm text-gray-600 hover:text-gray-900">
+                <div className="w-5 h-5 flex items-center justify-center">
+                  {allSelected ? <CheckSquare className="w-5 h-5 text-emerald-600" /> : <Square className="w-5 h-5" />}
+                </div>
+                <input type="checkbox" className="hidden" checked={allSelected} onChange={toggleSelectAll} />
+                <span>{t.common.selectAll}</span>
+              </label>
+            )}
+
+            {productsLoading ? (
+              <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
+            ) : filtered.length === 0 ? (
+              <div className="text-center py-16 text-gray-400">
+                <Package className="w-12 h-12 mx-auto mb-3 opacity-30" />
+                <p>{search ? t.products.noMatch(search) : t.seller.noProducts}</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {filtered.map(p => (
+                  <div key={p.id} className="bg-white rounded-xl p-4 shadow-sm border flex items-center gap-3">
+                    <button onClick={() => toggleSelect(p.id)} className="flex-shrink-0 text-gray-400 hover:text-emerald-600">
+                      {selectedIds.has(p.id) ? <CheckSquare className="w-5 h-5 text-emerald-600" /> : <Square className="w-5 h-5" />}
+                    </button>
+                    <div className="flex-1 min-w-0">
+                      <h3 className="font-semibold text-gray-900 truncate">{p.name}</h3>
+                      <div className="flex flex-wrap gap-2 mt-1 text-xs text-gray-500">
+                        {p.sku && <span>{t.seller.sku}: {p.sku}</span>}
+                        {p.moq && <span>{t.buyer.moqLabel}: {p.moq}</span>}
+                        <span className="badge badge-blue">{p.category}</span>
+                      </div>
                     </div>
                   </div>
-                  <button onClick={() => handleDelete(p.id)} className="text-gray-400 hover:text-red-500 p-1">
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
+                ))}
               </div>
-            ))}
+            )}
           </>
         )}
 
         {tab === "inquiries" && (
           <>
             <div className="mb-6">
-              <h1 className="text-xl font-bold text-gray-900">Received Inquiries</h1>
-              <p className="text-sm text-gray-500">Buyers who selected your products</p>
+              <h1 className="text-xl font-bold text-gray-900">{t.seller.receivedInquiries}</h1>
+              <p className="text-sm text-gray-500">{t.seller.inquiriesDesc}</p>
             </div>
 
             {loadingInquiries ? (
-              <div className="text-center py-12 text-gray-400">Loading...</div>
+              <div className="text-center py-12 text-gray-400">{t.common.loading}</div>
             ) : inquiries.length === 0 ? (
               <div className="text-center py-16 text-gray-400">
                 <Mail className="w-12 h-12 mx-auto mb-3 opacity-30" />
-                <p>No inquiries received yet.</p>
+                <p>{t.seller.noInquiries}</p>
               </div>
             ) : (
               <div className="space-y-4">
@@ -206,7 +278,7 @@ export default function SellerPage() {
                   <div key={inq.id} className="bg-white rounded-xl shadow-sm border p-5">
                     <div className="flex items-start justify-between mb-3">
                       <div>
-                        {inq.buyer_email && <p className="text-sm text-gray-500">From: {inq.buyer_email}</p>}
+                        {inq.buyer_email && <p className="text-sm text-gray-500">{t.seller.from}: {inq.buyer_email}</p>}
                         <p className="text-xs text-gray-400 mt-1">
                           {inq.created_at ? new Date(inq.created_at).toLocaleString() : ""}
                         </p>
@@ -214,7 +286,7 @@ export default function SellerPage() {
                       <span className={`text-xs px-2 py-1 rounded-full ${
                         inq.status === "replied" ? "bg-green-100 text-green-700" : "bg-yellow-100 text-yellow-700"
                       }`}>
-                        {inq.status}
+                        {(inq.status === "replied" ? t.seller.replied : t.seller.pending)}
                       </span>
                     </div>
 
@@ -225,12 +297,12 @@ export default function SellerPage() {
                     {inq.reply_body ? (
                       <div>
                         <div className="flex items-center justify-between mb-2">
-                          <span className="text-sm font-medium text-green-700">AI Reply</span>
+                          <span className="text-sm font-medium text-green-700">{t.seller.aiReply}</span>
                           <button
                             className="btn-secondary text-xs"
                             onClick={() => navigator.clipboard.writeText(inq.reply_body || "")}
                           >
-                            <Copy className="w-3 h-3" /> Copy
+                            <Copy className="w-3 h-3" /> {t.seller.copy}
                           </button>
                         </div>
                         <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-green-50 p-3 rounded-lg font-sans max-h-60 overflow-y-auto">
@@ -244,7 +316,7 @@ export default function SellerPage() {
                         disabled={generatingId === inq.id}
                       >
                         <FileText className="w-4 h-4" />
-                        {generatingId === inq.id ? "Generating..." : "Generate AI Reply"}
+                        {generatingId === inq.id ? t.seller.generating : t.seller.generateReply}
                       </button>
                     )}
                   </div>

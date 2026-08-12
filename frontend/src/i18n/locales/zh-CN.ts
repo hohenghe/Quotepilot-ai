@@ -13,6 +13,7 @@ const zhCN = {
     units: "个",
     perUnit: "/个",
     days: "天",
+    selectAll: "全选",
     parseFailed: "解析失败",
   },
   sidebar: {
@@ -121,10 +122,12 @@ const zhCN = {
     aiReply: "AI 回复",
     generateReply: "生成 AI 回复",
     generating: "生成中...",
+    deleting: "删除中...",
     copy: "复制",
     signOut: "退出登录",
     productsCount: (n: number) => `${n} 个产品`,
     sku: "SKU",
+    inquiriesDesc: "选择了您产品的买家",
   },
   admin: {
     portalTitle: "管理面板",

@@ -2,9 +2,11 @@ import type {
   Inquiry,
   InquiryAnalysis,
   MatchedProduct,
+  Product,
   Quote,
   DashboardStats,
 } from "@/types"
+import { getToken } from "./auth"
 
 function getApiBaseUrl(): string {
   let url = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
@@ -19,12 +21,18 @@ export function isApiAvailable(): boolean {
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+  const token = getToken()
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string> || {}),
+  }
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`
+  }
+
   const res = await fetch(`${getApiBaseUrl()}${path}`, {
     ...options,
-    headers: {
-      "Content-Type": "application/json",
-      ...options.headers,
-    },
+    headers,
   })
 
   if (!res.ok) {
@@ -221,9 +229,13 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 export async function uploadProducts(file: File): Promise<void> {
   const formData = new FormData()
   formData.append("file", file)
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers["Authorization"] = `Bearer ${token}`
   await fetch(`${getApiBaseUrl()}/api/products/upload`, {
     method: "POST",
     body: formData,
+    headers,
   })
 }
 
@@ -235,4 +247,71 @@ export async function listInquiries(): Promise<Inquiry[]> {
 export async function getQuoteById(id: number): Promise<Quote> {
   const data = await request<ApiQuote>(`/api/quotes/${id}`)
   return adaptQuote(data)
+}
+
+// ── Auth ──────────────────────────────────────────────────────────
+
+interface AuthResponse {
+  token: string
+  user_id: number
+  email: string
+  role: string
+  name: string | null
+}
+
+export async function login(email: string, password: string): Promise<AuthResponse> {
+  return await request<AuthResponse>("/api/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  })
+}
+
+export async function register(email: string, password: string, name: string): Promise<AuthResponse> {
+  return await request<AuthResponse>("/api/auth/register", {
+    method: "POST",
+    body: JSON.stringify({ email, password, name }),
+  })
+}
+
+// ── Admin ─────────────────────────────────────────────────────────
+
+interface SellerInfo {
+  id: number
+  email: string
+  name: string | null
+  product_count: number
+  created_at: string | null
+}
+
+export async function adminGetDashboard(): Promise<{
+  total_products: number
+  total_inquiries: number
+  total_quotes: number
+  total_sellers: number
+  categories: Record<string, number>
+}> {
+  return await request("/api/dashboard/admin")
+}
+
+export async function adminListSellers(): Promise<SellerInfo[]> {
+  const data = await request<{ sellers: SellerInfo[] }>("/api/dashboard/admin/sellers")
+  return data.sellers
+}
+
+export async function adminListProducts(
+  page = 1, search?: string, sellerId?: number
+): Promise<{ total: number; items: Product[] }> {
+  let url = `/api/products/admin/all?page=${page}&page_size=20`
+  if (search) url += `&search=${encodeURIComponent(search)}`
+  if (sellerId) url += `&seller_id=${sellerId}`
+  return await request(url)
+}
+
+export async function adminListInquiries(
+  page = 1
+): Promise<{ total: number; items: Inquiry[] }> {
+  const data = await request<{ total: number; items: ApiInquiry[] }>(
+    `/api/inquiries/admin/all?page=${page}&page_size=20`
+  )
+  return { total: data.total, items: data.items.map(adaptInquiry) }
 }

@@ -24,6 +24,15 @@ async def get_db() -> AsyncSession:
 
 def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
     return {
+        "users": [
+            ("id", "BIGSERIAL PRIMARY KEY", None),
+            ("email", "TEXT NOT NULL UNIQUE", None),
+            ("password_hash", "TEXT NOT NULL", None),
+            ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
+            ("name", "TEXT", None),
+            ("is_active", "BOOLEAN DEFAULT TRUE", None),
+            ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+        ],
         "products": [
             ("id", "BIGSERIAL PRIMARY KEY", None),
             ("name", "TEXT NOT NULL", None),
@@ -37,6 +46,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("price_range_low", "NUMERIC", None),
             ("price_range_high", "NUMERIC", None),
             ("pricing", "TEXT", None),
+            ("seller_id", "INTEGER", None),
             ("lead_time_days", "INTEGER", None),
             ("image_url", "TEXT", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
@@ -139,6 +149,7 @@ async def init_db():
     from app.models.document import Document
     from app.models.inquiry import Inquiry, InquiryAnalysis
     from app.models.quote import Quote
+    from app.models.user import User
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

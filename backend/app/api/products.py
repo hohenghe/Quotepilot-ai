@@ -1,15 +1,13 @@
-"""
-Products API — CRUD operations for product catalog.
-"""
 import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-
 from app.core.database import get_db
+from app.core.auth import require_seller, require_admin, require_auth
 from app.models.product import Product
 from app.models.document import Document
+from app.models.user import User
 from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductListResponse, DocumentResponse
 from app.services.file_parser import parse_file
 
@@ -19,6 +17,10 @@ UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file
 os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
+def _scope_by_seller(query, user: User):
+    return query.where(Product.seller_id == user.id)
+
+
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     page: int = Query(1, ge=1),
@@ -26,9 +28,14 @@ async def list_products(
     category: str | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(require_auth),
 ):
     query = select(Product).where(Product.is_active == True)
     count_query = select(func.count(Product.id)).where(Product.is_active == True)
+
+    if user:
+        query = _scope_by_seller(query, user)
+        count_query = _scope_by_seller(count_query, user)
 
     if category:
         query = query.where(Product.category == category)
@@ -64,6 +71,7 @@ async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
 async def upload_product_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
 ):
     allowed_exts = {".pdf", ".xlsx", ".xls", ".docx", ".doc", ".csv"}
     ext = os.path.splitext(file.filename or "")[1].lower()
@@ -104,6 +112,7 @@ async def upload_product_file(
                 price_range_high=pdata.get("price_range_high"),
                 pricing=pdata.get("pricing"),
                 lead_time_days=pdata.get("lead_time_days"),
+                seller_id=user.id,
             )
             db.add(product)
 
@@ -121,8 +130,13 @@ async def upload_product_file(
 
 
 @router.put("/{product_id}", response_model=ProductResponse)
-async def update_product(product_id: int, data: ProductUpdate, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Product).where(Product.id == product_id))
+async def update_product(
+    product_id: int, data: ProductUpdate, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
+):
+    result = await db.execute(
+        select(Product).where(Product.id == product_id, Product.seller_id == user.id)
+    )
     product = result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -137,8 +151,13 @@ async def update_product(product_id: int, data: ProductUpdate, db: AsyncSession 
 
 
 @router.delete("/{product_id}")
-async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Product).where(Product.id == product_id))
+async def delete_product(
+    product_id: int, db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
+):
+    result = await db.execute(
+        select(Product).where(Product.id == product_id, Product.seller_id == user.id)
+    )
     product = result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -148,15 +167,56 @@ async def delete_product(product_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/stats/summary")
-async def product_stats(db: AsyncSession = Depends(get_db)):
-    total_result = await db.execute(select(func.count(Product.id)).where(Product.is_active == True))
+async def product_stats(
+    db: AsyncSession = Depends(get_db),
+    user: User | None = Depends(require_auth),
+):
+    base = select(func.count(Product.id)).where(Product.is_active == True)
+    if user:
+        base = base.where(Product.seller_id == user.id)
+    total_result = await db.execute(base)
     total = total_result.scalar() or 0
 
-    cat_result = await db.execute(
+    cat_base = (
         select(Product.category, func.count(Product.id))
         .where(Product.is_active == True)
-        .group_by(Product.category)
     )
+    if user:
+        cat_base = cat_base.where(Product.seller_id == user.id)
+    cat_result = await db.execute(cat_base.group_by(Product.category))
     categories = {row[0]: row[1] for row in cat_result.fetchall()}
 
     return {"total_products": total, "categories": categories}
+
+
+@router.get("/admin/all", response_model=ProductListResponse)
+async def admin_list_all_products(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str | None = None,
+    seller_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    query = select(Product).where(Product.is_active == True)
+    count_query = select(func.count(Product.id)).where(Product.is_active == True)
+
+    if seller_id:
+        query = query.where(Product.seller_id == seller_id)
+        count_query = count_query.where(Product.seller_id == seller_id)
+    if search:
+        query = query.where(Product.name.ilike(f"%{search}%"))
+        count_query = count_query.where(Product.name.ilike(f"%{search}%"))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    query = query.offset(offset).limit(page_size).order_by(Product.created_at.desc())
+    result = await db.execute(query)
+    items = result.scalars().all()
+
+    return ProductListResponse(
+        total=total,
+        items=[ProductResponse.model_validate(p) for p in items],
+    )

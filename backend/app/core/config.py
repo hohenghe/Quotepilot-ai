@@ -12,6 +12,8 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     LLM_MODEL: str = "gpt-4o-mini"
 
+    JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
+
     class Config:
         env_file = ".env"
         extra = "allow"

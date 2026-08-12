@@ -1,13 +1,12 @@
-"""
-Inquiries API — inquiry analysis and product matching.
-"""
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-
 from app.core.database import get_db
+from app.core.auth import require_admin, require_auth, require_seller
 from app.models.inquiry import Inquiry, InquiryAnalysis
 from app.models.product import Product
+from app.models.user import User
+from app.models.quote import Quote
 from app.schemas.inquiry import (
     InquiryCreate,
     InquiryResponse,
@@ -26,6 +25,7 @@ async def list_inquiries(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_admin),
 ):
     query = select(Inquiry).order_by(Inquiry.created_at.desc())
     count_query = select(func.count(Inquiry.id))
@@ -38,16 +38,12 @@ async def list_inquiries(
     result = await db.execute(query)
     inquiries = result.scalars().all()
 
-    items = []
-    for inquiry in inquiries:
-        items.append(InquiryResponse.model_validate(inquiry))
-
+    items = [InquiryResponse.model_validate(i) for i in inquiries]
     return {"total": total, "items": items}
 
 
 @router.post("/analyze", response_model=InquiryAnalysisResult)
 async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(get_db)):
-    # Save inquiry
     inquiry = Inquiry(
         raw_message=request.raw_message,
         customer_name=request.customer_name,
@@ -57,7 +53,6 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
     db.add(inquiry)
     await db.flush()
 
-    # AI analysis
     analysis_data = await analyze_inquiry(request.raw_message)
     analysis = InquiryAnalysis(
         inquiry_id=inquiry.id,
@@ -76,8 +71,9 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
     await db.refresh(analysis)
     inquiry.analyses = [analysis]
 
-    # Product matching via RAG
-    result = await db.execute(select(Product).where(Product.is_active == True))
+    result = await db.execute(
+        select(Product).where(Product.is_active == True)
+    )
     all_products = result.scalars().all()
 
     if all_products:
@@ -140,3 +136,25 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
         matched_products=matched,
         ai_used=analysis_data.get("ai_used", False),
     )
+
+
+@router.get("/admin/all", response_model=dict)
+async def admin_list_inquiries(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    query = select(Inquiry).order_by(Inquiry.created_at.desc())
+    count_query = select(func.count(Inquiry.id))
+
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    offset = (page - 1) * page_size
+    query = query.offset(offset).limit(page_size)
+    result = await db.execute(query)
+    inquiries = result.scalars().all()
+
+    items = [InquiryResponse.model_validate(i) for i in inquiries]
+    return {"total": total, "items": items}

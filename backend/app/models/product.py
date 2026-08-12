@@ -31,6 +31,7 @@ class Product(Base):
     price_range_low = Column(Float, nullable=True)
     price_range_high = Column(Float, nullable=True)
     pricing = Column(Text, nullable=True)
+    seller_id = Column(Integer, nullable=True, index=True)
     lead_time_days = Column(Integer, nullable=True)
     image_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)

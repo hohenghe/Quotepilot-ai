@@ -232,11 +232,15 @@ export async function uploadProducts(file: File): Promise<void> {
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) headers["Authorization"] = `Bearer ${token}`
-  await fetch(`${getApiBaseUrl()}/api/products/upload`, {
+  const res = await fetch(`${getApiBaseUrl()}/api/products/upload`, {
     method: "POST",
     body: formData,
     headers,
   })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Upload failed (${res.status}): ${text.slice(0, 200)}`)
+  }
 }
 
 export async function listInquiries(): Promise<Inquiry[]> {

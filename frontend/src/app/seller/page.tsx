@@ -116,6 +116,7 @@ export default function SellerPage() {
       for (const id of idsToDelete) {
         await deleteSellerProduct(id)
       }
+      await loadProducts()
     } catch (err: any) {
       setMsg({ type: "error", text: err.message || "Delete failed" })
       await loadProducts()

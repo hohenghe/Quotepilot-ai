@@ -9,7 +9,7 @@ class Settings(BaseSettings):
     EMBEDDING_MODEL: str = "text-embedding-v4"
     EMBEDDING_BASE_URL: str = ""
     EMBEDDING_API_KEY: str = ""
-    EMBEDDING_BATCH_SIZE: int = 100
+    EMBEDDING_BATCH_SIZE: int = 20
     EMBEDDING_MAX_RETRIES: int = 3
     EMBEDDING_TIMEOUT: int = 60
 

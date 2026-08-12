@@ -1,12 +1,13 @@
 /**
- * RAG (Retrieval-Augmented Generation) — local product search.
- * Swap in: pgvector cosine similarity or external vector DB.
+ * RAG (Retrieval-Augmented Generation) — hybrid product search.
+ * Combines vector similarity (real API or mock) with keyword matching.
  */
 
 import { generateEmbedding } from "./embedding"
 import type { Product } from "@/types"
 
 function cosineSimilarity(a: number[], b: number[]): number {
+  if (a.length !== b.length) return 0
   let dot = 0
   let normA = 0
   let normB = 0
@@ -43,15 +44,15 @@ export interface SearchResult {
   score: number
 }
 
-export function searchProducts(
+export async function searchProducts(
   query: string,
   products: Product[],
   topK: number = 5,
-  vectorWeight: number = 0.1,
-): SearchResult[] {
+  vectorWeight: number = 0.5,
+): Promise<SearchResult[]> {
   if (products.length === 0) return []
 
-  const queryVec = generateEmbedding(query)
+  const queryVec = await generateEmbedding(query)
   const results: SearchResult[] = []
 
   for (const p of products) {
@@ -59,7 +60,7 @@ export function searchProducts(
       p.name, p.category, p.description,
       p.technical_specs, p.certifications,
     ].filter(Boolean).join(" | ")
-    const pVec = generateEmbedding(text)
+    const pVec = await generateEmbedding(text)
     const vs = (cosineSimilarity(queryVec, pVec) + 1) / 2
     const ks = keywordScore(query, p)
     const combined = vectorWeight * vs + (1 - vectorWeight) * ks

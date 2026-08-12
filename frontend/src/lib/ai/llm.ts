@@ -1,9 +1,10 @@
 /**
- * Local LLM service — inquiry analysis and quote email generation.
- * Swap in: OpenAI GPT-4o / DeepSeek Chat / any LLM API.
+ * LLM service — inquiry analysis and quote email generation.
+ * Uses real AI when NEXT_PUBLIC_LLM_API_KEY is set, falls back to mock rules.
  */
 
 import type { MatchedProduct } from "@/types"
+import { isLLMAvailable, chatCompletion } from "./api-config"
 
 export interface ExtractedInfo {
   productCategory: string
@@ -15,6 +16,115 @@ export interface ExtractedInfo {
   deliveryCountry: string | null
   missingInfo: string[]
 }
+
+// ═══════════════════════════════════════════════════════════════════
+// Real AI — calls OpenAI-compatible API
+// ═══════════════════════════════════════════════════════════════════
+
+const ANALYSIS_SYSTEM = `You are an AI assistant for an international trade company. Extract structured information from customer inquiry messages.
+
+Return ONLY valid JSON in this exact format:
+{
+  "productCategory": "one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other",
+  "quantity": number or null,
+  "technicalParams": { "key": "value" } like voltage, plugType, wattage, dimensions, colorTemperature, material,
+  "targetPrice": number or null (in USD),
+  "requiredCertifications": ["CE", "RoHS", etc.],
+  "deliveryLocation": "City, Country" or null,
+  "deliveryCountry": "Country" or null,
+  "missingInfo": ["info not provided by customer"]
+}
+
+Extract any technical params mentioned (voltage, power, size, material, color temp, etc).
+For certifications, look for standards like CE, RoHS, FCC, UL, TUV, ISO, REACH, FDA.
+For missing info, note what the customer didn't specify (quantity, budget, timeline, payment terms, etc).`
+
+async function analyzeWithAI(rawMessage: string): Promise<ExtractedInfo> {
+  if (!isLLMAvailable()) throw new Error("LLM not available")
+
+  const response = await chatCompletion(ANALYSIS_SYSTEM, rawMessage, true)
+
+  let parsed: any
+  try {
+    parsed = JSON.parse(response)
+  } catch {
+    // Try to extract JSON from markdown code blocks
+    const match = response.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    parsed = match ? JSON.parse(match[1]) : {}
+  }
+
+  return {
+    productCategory: parsed.productCategory || "other",
+    quantity: typeof parsed.quantity === "number" ? parsed.quantity : null,
+    technicalParams: parsed.technicalParams || {},
+    targetPrice: typeof parsed.targetPrice === "number" ? parsed.targetPrice : null,
+    requiredCertifications: Array.isArray(parsed.requiredCertifications) ? parsed.requiredCertifications : [],
+    deliveryLocation: parsed.deliveryLocation || null,
+    deliveryCountry: parsed.deliveryCountry || null,
+    missingInfo: Array.isArray(parsed.missingInfo) ? parsed.missingInfo : [],
+  }
+}
+
+const QUOTE_SYSTEM = `You are a professional sales assistant for an international trade company. Generate a formal quotation email in English based on the provided inquiry and matched products.
+
+Return ONLY valid JSON:
+{
+  "subject": "email subject line",
+  "emailBody": "full email body with greeting, product details, pricing, payment terms, shipping terms, and closing",
+  "totalAmountLow": number (low end estimate in USD),
+  "totalAmountHigh": number (high end estimate in USD)
+}
+
+Use professional tone. Include: greeting, thank you, product recommendations with specs, estimated total, payment terms (T/T 30/70), shipping terms (FOB), questions to confirm, closing with contact info.`
+
+async function generateQuoteWithAI(
+  inquiryText: string,
+  customerName: string | null,
+  products: Array<{ name: string; sku: string | null; moq: number | null; pricing: string | null; lead_time_days: number | null }>,
+): Promise<{ subject: string; emailBody: string; totalAmountLow: number; totalAmountHigh: number }> {
+  if (!isLLMAvailable()) throw new Error("LLM not available")
+
+  const productList = products.map((p, i) =>
+    `${i + 1}. ${p.name} (SKU: ${p.sku || "N/A"}) - MOQ: ${p.moq || "-"} - Pricing: ${p.pricing || "Inquire"} - Lead Time: ${p.lead_time_days || "-"} days`
+  ).join("\n")
+
+  const userMsg = `Customer Inquiry:\n${inquiryText}\n\nCustomer Name: ${customerName || "Valued Customer"}\n\nRecommended Products:\n${productList}`
+
+  const response = await chatCompletion(QUOTE_SYSTEM, userMsg, true)
+
+  let parsed: any
+  try {
+    parsed = JSON.parse(response)
+  } catch {
+    const match = response.match(/```(?:json)?\s*([\s\S]*?)\s*```/)
+    parsed = match ? JSON.parse(match[1]) : {}
+  }
+
+  return {
+    subject: parsed.subject || "Quotation - QuotePilot",
+    emailBody: parsed.emailBody || response,
+    totalAmountLow: parsed.totalAmountLow || 0,
+    totalAmountHigh: parsed.totalAmountHigh || 0,
+  }
+}
+
+const NO_MATCH_SYSTEM = `You are a professional sales assistant. Write a polite email in English to a customer whose inquiry could not be matched to any products in the catalog. Apologize, suggest they provide more details, and offer to forward their request to product specialists. The email should be professional, warm, and solution-oriented. Return ONLY the email text, with subject line on the first line as "Subject: ...".`
+
+async function generateNoMatchWithAI(inquiryText: string): Promise<string> {
+  if (!isLLMAvailable()) throw new Error("LLM not available")
+
+  const response = await chatCompletion(
+    NO_MATCH_SYSTEM,
+    `Customer Inquiry:\n${inquiryText}\n\nPlease write a professional no-match response email.`,
+    false,
+  )
+
+  return response.trim()
+}
+
+// ═══════════════════════════════════════════════════════════════════
+// Mock / rule-based fallback
+// ═══════════════════════════════════════════════════════════════════
 
 const CATEGORY_KEYWORDS: Record<string, string[]> = {
   led_lighting: ["led", "light", "lamp", "bulb", "lighting", "luminaire"],
@@ -29,7 +139,18 @@ const CATEGORY_KEYWORDS: Record<string, string[]> = {
 
 const KNOWN_CERTS = ["CE", "RoHS", "FCC", "UL", "TUV", "ISO", "REACH", "FDA", "SAA"]
 
-export function analyzeInquiry(rawMessage: string): ExtractedInfo {
+export async function analyzeInquiry(rawMessage: string): Promise<ExtractedInfo> {
+  if (isLLMAvailable()) {
+    try {
+      return await analyzeWithAI(rawMessage)
+    } catch (e) {
+      console.warn("AI analyze failed, using mock", e)
+    }
+  }
+  return analyzeMock(rawMessage)
+}
+
+function analyzeMock(rawMessage: string): ExtractedInfo {
   const text = rawMessage.toLowerCase()
 
   // Quantity
@@ -114,17 +235,35 @@ export function analyzeInquiry(rawMessage: string): ExtractedInfo {
   }
 }
 
-export function generateQuoteEmail(
+export async function generateQuoteEmail(
   inquiryText: string,
   customerName: string | null,
   matchedProducts: MatchedProduct[],
   additionalNotes?: string | null,
-): {
+): Promise<{
   subject: string
   emailBody: string
   totalAmountLow: number
   totalAmountHigh: number
-} {
+}> {
+  if (isLLMAvailable()) {
+    try {
+      return await generateQuoteWithAI(
+        inquiryText,
+        customerName,
+        matchedProducts.map(p => ({
+          name: p.product_name,
+          sku: p.sku,
+          moq: p.moq,
+          pricing: p.pricing,
+          lead_time_days: p.lead_time_days,
+        })),
+      )
+    } catch (e) {
+      console.warn("AI quote failed, using mock", e)
+    }
+  }
+
   const namePart = customerName || "Sir/Madam"
 
   let qty = 500
@@ -193,7 +332,15 @@ sales@quotepilot.ai`
   return { subject, emailBody, totalAmountLow: totalLow, totalAmountHigh: totalHigh }
 }
 
-export function generateNoMatchResponse(inquiryText: string): string {
+export async function generateNoMatchResponse(inquiryText: string): Promise<string> {
+  if (isLLMAvailable()) {
+    try {
+      return await generateNoMatchWithAI(inquiryText)
+    } catch (e) {
+      console.warn("AI no-match failed, using mock", e)
+    }
+  }
+
   const subject = "Re: Your Product Inquiry - QuotePilot"
 
   const body = `Dear Valued Customer,

@@ -1,11 +1,14 @@
 /**
- * Hybrid store — Supabase cloud-first with localStorage fallback.
+ * Hybrid store — backend API-first with localStorage fallback.
+ * When NEXT_PUBLIC_API_BASE_URL is set, AI operations go through backend.
  * When NEXT_PUBLIC_SUPABASE_URL is set, data syncs across devices via Supabase.
  */
 import type { Product, Inquiry, InquiryAnalysis, Quote, MatchedProduct } from "@/types"
-import { analyzeInquiry, generateQuoteEmail, type ExtractedInfo } from "./ai/llm"
+import { analyzeInquiry, generateQuoteEmail } from "./ai/llm"
 import { searchProducts } from "./ai/rag"
+import { isLLMAvailable } from "./ai/api-config"
 import { supabase as getSupabase, isSupabaseMode } from "./supabase"
+import * as apiClient from "./api-client"
 
 const PRODUCTS_KEY = "quotepilot_products"
 const INQUIRIES_KEY = "quotepilot_inquiries"
@@ -224,8 +227,8 @@ export interface FullAnalysisResult {
   matchedProducts: MatchedProduct[]
 }
 
-function doLocalAnalyze(rawMessage: string, customerName?: string): FullAnalysisResult {
-  const analysisData: ExtractedInfo = analyzeInquiry(rawMessage)
+async function doLocalAnalyze(rawMessage: string, customerName?: string): Promise<FullAnalysisResult> {
+  const analysisData = await analyzeInquiry(rawMessage)
 
   const inquiry: Inquiry = {
     id: nextInquiryId++,
@@ -258,7 +261,7 @@ function doLocalAnalyze(rawMessage: string, customerName?: string): FullAnalysis
   save(INQUIRIES_KEY, inquiries)
 
   const products = getAllProducts().filter(p => p.is_active)
-  const searchResults = searchProducts(rawMessage, products, 5)
+  const searchResults = await searchProducts(rawMessage, products, 5, isLLMAvailable() ? 0.6 : 0.1)
 
   const matchedProducts: MatchedProduct[] = searchResults.map(({ product, score }) => {
     const reasons: string[] = []
@@ -296,6 +299,18 @@ function doLocalAnalyze(rawMessage: string, customerName?: string): FullAnalysis
 }
 
 export async function analyzeAndMatch(rawMessage: string, customerName?: string): Promise<FullAnalysisResult> {
+  if (apiClient.isApiAvailable()) {
+    try {
+      const result = await apiClient.analyzeAndMatch(rawMessage, customerName)
+      const inquiries = getAllInquiries()
+      inquiries.unshift(result.inquiry)
+      save(INQUIRIES_KEY, inquiries)
+      return result
+    } catch (e) {
+      console.warn("Backend analyze failed, using local", e)
+    }
+  }
+
   if (isSupabaseMode()) {
     const { data: inq } = await       getSupabase()
       .from("inquiries")
@@ -309,7 +324,7 @@ export async function analyzeAndMatch(rawMessage: string, customerName?: string)
       .single()
 
     if (inq) {
-      const localResult = doLocalAnalyze(rawMessage, customerName)
+      const localResult = await doLocalAnalyze(rawMessage, customerName)
       const a = localResult.analysis
 
       await       getSupabase().from("inquiry_analyses").insert({
@@ -332,7 +347,7 @@ export async function analyzeAndMatch(rawMessage: string, customerName?: string)
     }
   }
 
-  return doLocalAnalyze(rawMessage, customerName)
+  return await doLocalAnalyze(rawMessage, customerName)
 }
 
 export function getInquiryById(id: number): Inquiry | undefined {
@@ -341,11 +356,11 @@ export function getInquiryById(id: number): Inquiry | undefined {
 
 // ── Quotes ────────────────────────────────────────────────────────
 
-function doLocalGenerateQuote(
+async function doLocalGenerateQuote(
   inquiryId: number,
   selectedProductIds: number[] = [],
   additionalNotes?: string,
-): Quote {
+): Promise<Quote> {
   const inquiry = getInquiryById(inquiryId)
   if (!inquiry) throw new Error("Inquiry not found")
 
@@ -372,7 +387,7 @@ function doLocalGenerateQuote(
       }))
   } else {
     const products = getAllProducts().filter(p => p.is_active)
-    const searchResults = searchProducts(inquiry.raw_message, products, 5)
+    const searchResults = await searchProducts(inquiry.raw_message, products, 5, isLLMAvailable() ? 0.6 : 0.1)
     matchedProducts = searchResults.map(({ product, score }) => ({
       product_id: product.id,
       product_name: product.name,
@@ -390,7 +405,7 @@ function doLocalGenerateQuote(
     }))
   }
 
-  const emailData = generateQuoteEmail(
+  const emailData = await generateQuoteEmail(
     inquiry.raw_message,
     inquiry.customer_name,
     matchedProducts,
@@ -421,7 +436,19 @@ export async function generateQuote(
   selectedProductIds: number[] = [],
   additionalNotes?: string,
 ): Promise<Quote> {
-  const localQuote = doLocalGenerateQuote(inquiryId, selectedProductIds, additionalNotes)
+  if (apiClient.isApiAvailable()) {
+    try {
+      const quote = await apiClient.generateQuote(inquiryId, selectedProductIds, additionalNotes)
+      const quotes = load<Quote>(QUOTES_KEY)
+      quotes.unshift(quote)
+      save(QUOTES_KEY, quotes)
+      return quote
+    } catch (e) {
+      console.warn("Backend quote failed, using local", e)
+    }
+  }
+
+  const localQuote = await doLocalGenerateQuote(inquiryId, selectedProductIds, additionalNotes)
 
   if (isSupabaseMode()) {
     const { data } = await       getSupabase()
@@ -453,6 +480,14 @@ export function getQuoteById(id: number): Quote | undefined {
 // ── Dashboard ─────────────────────────────────────────────────────
 
 export async function getDashboardStatsAsync() {
+  if (apiClient.isApiAvailable()) {
+    try {
+      return await apiClient.getDashboardStats()
+    } catch (e) {
+      console.warn("Backend dashboard failed, using local", e)
+    }
+  }
+
   if (isSupabaseMode()) {
     const { data: products } = await       getSupabase()
       .from("products")

@@ -60,7 +60,7 @@ export default function InquiryPage() {
     const allBelowThreshold = res.matchedProducts.length === 0 ||
       res.matchedProducts.every(p => p.match_score < 0.1)
     if (allBelowThreshold) {
-      const response = generateNoMatchResponse(rawMessage)
+      const response = await generateNoMatchResponse(rawMessage)
       setNoMatchResponse(response)
     }
   }
@@ -69,7 +69,7 @@ export default function InquiryPage() {
     if (!result) return
     setGeneratingNoMatch(true)
     await new Promise(r => setTimeout(r, 600))
-    const response = generateNoMatchResponse(rawMessage)
+    const response = await generateNoMatchResponse(rawMessage)
     setNoMatchResponse(response)
     setGeneratingNoMatch(false)
   }

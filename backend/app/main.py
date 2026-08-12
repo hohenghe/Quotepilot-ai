@@ -37,6 +37,7 @@ async def lifespan(app: FastAPI):
     global _worker_task
     await init_db()
     await _reset_stuck_embeddings()
+    await _ensure_admin()
     _worker_task = asyncio.create_task(_embedding_worker())
     yield
     if _worker_task:
@@ -45,6 +46,15 @@ async def lifespan(app: FastAPI):
             await _worker_task
         except asyncio.CancelledError:
             pass
+
+
+async def _ensure_admin():
+    """Auto-create the admin account on startup if it doesn't exist."""
+    try:
+        from seed_admin import create_admin
+        await create_admin()
+    except Exception:
+        pass
 
 
 async def _reset_stuck_embeddings():

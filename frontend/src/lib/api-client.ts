@@ -257,6 +257,8 @@ interface AuthResponse {
   email: string
   role: string
   name: string | null
+  country: string | null
+  phone: string | null
 }
 
 export async function login(email: string, password: string): Promise<AuthResponse> {

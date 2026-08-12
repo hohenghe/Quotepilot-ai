@@ -30,6 +30,8 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("password_hash", "TEXT NOT NULL", None),
             ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
             ("name", "TEXT", None),
+            ("country", "TEXT NOT NULL DEFAULT 'CN'", None),
+            ("phone", "TEXT", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],

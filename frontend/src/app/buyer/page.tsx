@@ -1,69 +1,97 @@
 "use client"
 
 import { useState } from "react"
-import { Sparkles, Copy, Mail, FileText, TrendingUp } from "lucide-react"
-import { analyzeAndMatch } from "@/lib/api-client"
+import { Sparkles, Copy, TrendingUp, LogOut } from "lucide-react"
+import { analyzeAndMatch, login, register } from "@/lib/api-client"
+import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
+import AuthForm from "@/components/AuthForm"
+import type { AuthFormData } from "@/components/AuthForm"
 import type { FullAnalysisResult } from "@/lib/api-client"
+import { useT } from "@/i18n/I18nProvider"
 
 export default function BuyerPage() {
+  const { t } = useT()
+  const [authMode, setAuthMode] = useState<"login" | "register">("login")
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState<string | null>(null)
+
+  const user = getUser()
+  const loggedIn = isAuthenticated()
+
+  // Inquiry state
   const [rawMessage, setRawMessage] = useState("")
-  const [email, setEmail] = useState("")
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<FullAnalysisResult | null>(null)
-  const [noMatchResponse, setNoMatchResponse] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+
+  const handleAuth = async (data: AuthFormData) => {
+    setAuthLoading(true)
+    setAuthError(null)
+    try {
+      const res = authMode === "register"
+        ? await register(data.email, data.password, data.name)
+        : await login(data.email, data.password)
+      saveAuth(res.token, {
+        user_id: res.user_id,
+        email: res.email,
+        role: res.role,
+        name: res.name,
+        country: res.country || data.country,
+        phone: res.phone || data.phone,
+      })
+    } catch (e: any) {
+      setAuthError(e.message || "Authentication failed")
+    } finally {
+      setAuthLoading(false)
+    }
+  }
 
   const handleAnalyze = async () => {
     if (!rawMessage.trim()) return
     setAnalyzing(true)
-    setError(null)
     setResult(null)
-    setNoMatchResponse(null)
     try {
-      const res = await analyzeAndMatch(rawMessage, email || undefined)
+      const res = await analyzeAndMatch(rawMessage, user?.email || undefined)
       setResult(res)
-
-      if (
-        res.matchedProducts.length === 0 ||
-        res.matchedProducts.every(p => p.match_score < 0.1)
-      ) {
-        setNoMatchResponse(
-          `Subject: Re: Your Product Inquiry\n\nDear Valued Customer,\n\nThank you for your inquiry. After carefully reviewing your requirements, we were unable to find an exact match in our current catalog. Our team has been notified and will reach out within 24 hours with tailored recommendations.\n\nBest regards,\nQuotePilot AI Team`
-        )
-      }
     } catch (e: any) {
-      setError(e.message || "Analysis failed. Please try again.")
+      console.warn("Analysis failed", e)
     } finally {
       setAnalyzing(false)
     }
   }
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text)
+  const handleLogout = () => {
+    logout()
+    setRawMessage("")
+    setResult(null)
+  }
+
+  if (!loggedIn || !user) {
+    return (
+      <AuthForm
+        mode={authMode}
+        onSubmit={handleAuth}
+        onToggleMode={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(null) }}
+        loading={authLoading}
+        error={authError}
+        title="Buyer Portal"
+      />
+    )
   }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
       <div className="max-w-3xl mx-auto px-4 py-12">
-        <div className="text-center mb-10">
-          <div className="inline-flex items-center gap-2 px-4 py-2 bg-white rounded-full shadow-sm border mb-4">
-            <Sparkles className="w-4 h-4 text-indigo-500" />
-            <span className="text-sm font-medium text-gray-600">AI-Powered Product Matching</span>
+        <div className="flex items-center justify-between mb-8">
+          <div className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-indigo-500" />
+            <span className="text-sm text-gray-500">{user.email}</span>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">Tell Us What You Need</h1>
-          <p className="text-gray-500">Describe your product requirements and we'll find the best matches.</p>
+          <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 flex items-center gap-1 text-sm">
+            <LogOut className="w-4 h-4" /> Sign Out
+          </button>
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">Your Email (optional)</label>
-          <input
-            type="email"
-            className="input-field mb-4"
-            placeholder="you@company.com"
-            value={email}
-            onChange={e => setEmail(e.target.value)}
-          />
-
           <label className="block text-sm font-medium text-gray-700 mb-2">What are you looking for?</label>
           <textarea
             className="input-field min-h-[140px] resize-y mb-4"
@@ -71,7 +99,6 @@ export default function BuyerPage() {
             value={rawMessage}
             onChange={e => setRawMessage(e.target.value)}
           />
-
           <button
             className="btn-primary w-full justify-center text-base py-3"
             onClick={handleAnalyze}
@@ -84,12 +111,6 @@ export default function BuyerPage() {
             )}
           </button>
         </div>
-
-        {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-sm text-red-700 mb-6">
-            {error}
-          </div>
-        )}
 
         {result && result.matchedProducts.length > 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
@@ -114,31 +135,13 @@ export default function BuyerPage() {
                   </div>
                   <div className="flex flex-wrap gap-3 text-xs text-gray-600">
                     {mp.moq && <span>MOQ: {mp.moq}</span>}
-                    {mp.lead_time_days && <span>Lead Time: {mp.lead_time_days} days</span>}
+                    {mp.lead_time_days && <span>Lead Time: {mp.lead_time_days}d</span>}
                     {mp.certifications && <span>Certs: {mp.certifications}</span>}
                     {mp.pricing && <span className="text-gray-400">{mp.pricing}</span>}
                   </div>
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mt-4 text-center">
-              Our team will email you a detailed quotation within 24 hours.
-            </p>
-          </div>
-        )}
-
-        {noMatchResponse && (
-          <div className="bg-white rounded-2xl shadow-lg p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <Mail className="w-5 h-5 text-orange-500" />
-                <h2 className="text-lg font-semibold">No Match Found</h2>
-              </div>
-              <button className="btn-secondary text-xs" onClick={() => handleCopy(noMatchResponse)}>
-                <Copy className="w-3 h-3" /> Copy
-              </button>
-            </div>
-            <pre className="whitespace-pre-wrap text-sm text-gray-700 bg-gray-50 p-4 rounded-xl">{noMatchResponse}</pre>
           </div>
         )}
       </div>

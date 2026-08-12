@@ -6,6 +6,8 @@ export interface AuthUser {
   email: string
   role: string
   name: string | null
+  country: string | null
+  phone: string | null
 }
 
 export function saveAuth(token: string, user: AuthUser) {

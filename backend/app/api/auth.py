@@ -14,6 +14,8 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str | None = None
+    country: str
+    phone: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -27,6 +29,8 @@ class AuthResponse(BaseModel):
     email: str
     role: str
     name: str | None = None
+    country: str | None = None
+    phone: str | None = None
 
 
 @router.post("/register", response_model=AuthResponse)
@@ -43,6 +47,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         password_hash=hash_password(data.password),
         role="seller",
         name=data.name,
+        country=data.country,
+        phone=data.phone,
     )
     db.add(user)
     await db.commit()

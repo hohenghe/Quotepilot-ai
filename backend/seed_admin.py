@@ -19,6 +19,7 @@ async def create_admin():
             password_hash=hash_password("admin123"),
             role="admin",
             name="Administrator",
+            country="CN",
         )
         db.add(admin)
         await db.commit()

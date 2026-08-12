@@ -19,7 +19,6 @@ export default function BuyerPage() {
   const user = getUser()
   const loggedIn = isAuthenticated()
 
-  // Inquiry state
   const [rawMessage, setRawMessage] = useState("")
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<FullAnalysisResult | null>(null)
@@ -32,12 +31,8 @@ export default function BuyerPage() {
         ? await register(data.email, data.password, data.name, data.country, data.phone)
         : await login(data.email, data.password)
       saveAuth(res.token, {
-        user_id: res.user_id,
-        email: res.email,
-        role: res.role,
-        name: res.name,
-        country: res.country || data.country,
-        phone: res.phone || data.phone,
+        user_id: res.user_id, email: res.email, role: res.role, name: res.name,
+        country: res.country || data.country, phone: res.phone || data.phone,
       })
     } catch (e: any) {
       setAuthError(e.message || "Authentication failed")
@@ -83,7 +78,7 @@ export default function BuyerPage() {
         onToggleMode={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(null) }}
         loading={authLoading}
         error={authError}
-        title="Buyer Portal"
+        title={t.buyer.portalTitle}
       />
     )
   }
@@ -97,15 +92,15 @@ export default function BuyerPage() {
             <span className="text-sm text-gray-500">{user.email}</span>
           </div>
           <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 flex items-center gap-1 text-sm">
-            <LogOut className="w-4 h-4" /> Sign Out
+            <LogOut className="w-4 h-4" /> {t.buyer.signOut}
           </button>
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">What are you looking for?</label>
+          <label className="block text-sm font-medium text-gray-700 mb-2">{t.buyer.label}</label>
           <textarea
             className="input-field min-h-[140px] resize-y mb-4"
-            placeholder="Example: We need 500 units of LED panel lights, 220V, EU plug, CE certified, delivery to Germany. Budget around $15 per unit."
+            placeholder={t.buyer.placeholder}
             value={rawMessage}
             onChange={e => setRawMessage(e.target.value)}
           />
@@ -115,9 +110,9 @@ export default function BuyerPage() {
             disabled={analyzing || !rawMessage.trim()}
           >
             {analyzing ? (
-              <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Analyzing...</>
+              <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {t.buyer.analyzing}</>
             ) : (
-              <><Sparkles className="w-5 h-5" /> Find Matching Products</>
+              <><Sparkles className="w-5 h-5" /> {t.buyer.findProducts}</>
             )}
           </button>
         </div>
@@ -126,9 +121,9 @@ export default function BuyerPage() {
           <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
             <div className="flex items-center gap-2 mb-4">
               <TrendingUp className="w-5 h-5 text-green-600" />
-              <h2 className="text-lg font-semibold">Matching Products ({result.matchedProducts.length})</h2>
+              <h2 className="text-lg font-semibold">{t.buyer.matchingProducts(result.matchedProducts.length)}</h2>
               {result.aiUsed && (
-                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">AI</span>
+                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{t.buyer.aiBadge}</span>
               )}
             </div>
             <div className="space-y-3">
@@ -141,16 +136,14 @@ export default function BuyerPage() {
                         <h3 className="font-semibold text-gray-900">{mp.product_name}</h3>
                         <p className="text-xs text-gray-500">{mp.match_reason}</p>
                       </div>
-                      <div className="flex items-center gap-3">
-                        <span className="text-sm font-bold text-green-600">
-                          {Math.round(mp.match_score * 100)}%
-                        </span>
-                      </div>
+                      <span className="text-sm font-bold text-green-600">
+                        {Math.round(mp.match_score * 100)}%
+                      </span>
                     </div>
                     <div className="flex flex-wrap gap-3 text-xs text-gray-600 mb-3">
-                      {mp.moq && <span>MOQ: {mp.moq}</span>}
-                      {mp.lead_time_days && <span>Lead Time: {mp.lead_time_days}d</span>}
-                      {mp.certifications && <span>Certs: {mp.certifications}</span>}
+                      {mp.moq && <span>{t.buyer.moqLabel}: {mp.moq}</span>}
+                      {mp.lead_time_days && <span>{t.buyer.leadTime}: {mp.lead_time_days}d</span>}
+                      {mp.certifications && <span>{t.buyer.certs}: {mp.certifications}</span>}
                       {mp.pricing && <span className="text-gray-400">{mp.pricing}</span>}
                     </div>
                     <button
@@ -163,7 +156,7 @@ export default function BuyerPage() {
                       }`}
                     >
                       <Send className="w-3.5 h-3.5" />
-                      {sent ? "Inquiry Sent" : "Send Inquiry to Seller"}
+                      {sent ? t.buyer.inquirySent : t.buyer.sendInquiry}
                     </button>
                   </div>
                 )
@@ -174,8 +167,8 @@ export default function BuyerPage() {
 
         {result && result.matchedProducts.length === 0 && (
           <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
-            <p>No matching products found for your inquiry.</p>
-            <p className="text-sm mt-2">Try describing your requirements in more detail.</p>
+            <p>{t.buyer.noMatch}</p>
+            <p className="text-sm mt-2">{t.buyer.noMatchHint}</p>
           </div>
         )}
       </div>

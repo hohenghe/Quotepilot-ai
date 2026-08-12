@@ -6,8 +6,10 @@ import { login } from "@/lib/api-client"
 import { saveAuth } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
 import type { AuthFormData } from "@/components/AuthForm"
+import { useT } from "@/i18n/I18nProvider"
 
 export default function AdminLoginPage() {
+  const { t } = useT()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -18,12 +20,8 @@ export default function AdminLoginPage() {
     try {
       const res = await login(data.email, data.password)
       saveAuth(res.token, {
-        user_id: res.user_id,
-        email: res.email,
-        role: res.role,
-        name: res.name,
-        country: res.country,
-        phone: res.phone,
+        user_id: res.user_id, email: res.email, role: res.role, name: res.name,
+        country: res.country, phone: res.phone,
       })
       router.push("/admin")
     } catch (e: any) {
@@ -40,7 +38,7 @@ export default function AdminLoginPage() {
       onToggleMode={() => {}}
       loading={loading}
       error={error}
-      title="Admin Panel"
+      title={t.admin.portalTitle}
     />
   )
 }

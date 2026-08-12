@@ -7,7 +7,11 @@ import type {
 } from "@/types"
 
 function getApiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+  let url = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
+  if (!url.startsWith("http")) {
+    url = "https://" + url
+  }
+  return url
 }
 
 export function isApiAvailable(): boolean {

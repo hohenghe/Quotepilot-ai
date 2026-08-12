@@ -2,6 +2,7 @@ from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Boolean
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 from app.core.database import Base
+from app.core.config import settings
 import enum
 
 
@@ -37,10 +38,12 @@ class Product(Base):
     image_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
 
-    embedding = Column(Vector(1536), nullable=True)
+    embedding = Column(Vector(settings.EMBEDDING_DIM), nullable=True)
     embedding_hash = Column(String(64), nullable=True, index=True)
     embedding_model = Column(String(100), nullable=True)
     embedding_status = Column(String(20), default="pending", index=True)
+    embedding_retry_count = Column(Integer, default=0, nullable=False)
+    embedding_error = Column(Text, nullable=True)
     embedded_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())

@@ -35,28 +35,25 @@ def compute_embedding_hash(text: str) -> str:
     return hashlib.sha256(text.encode()).hexdigest()
 
 
-def embedding_needs_update(product: Product) -> bool:
-    if product.embedding is None:
-        return True
-    if product.embedding_status == "failed":
-        return True
-    current_text = build_product_embedding_text(
-        product.name or "",
-        product.category or "",
-        product.description or "",
-        product.technical_specs or "",
-        product.certifications or "",
+async def _product_embedding_text(p: Product) -> str:
+    return build_product_embedding_text(
+        p.name or "", p.category or "", p.description or "",
+        p.technical_specs or "", p.certifications or "",
     )
-    new_hash = compute_embedding_hash(current_text)
-    if product.embedding_hash != new_hash:
-        return True
-    if product.embedding_model != settings.EMBEDDING_MODEL:
-        return True
-    return False
+
+
+async def _recheck_product(db: AsyncSession, product_id: int) -> Product | None:
+    """Re-fetch a product by ID. Returns None if it no longer exists or is inactive."""
+    result = await db.execute(
+        select(Product).where(Product.id == product_id, Product.is_active == True)
+    )
+    return result.scalar_one_or_none()
 
 
 async def process_pending_embeddings() -> dict:
-    """Process all products that need embedding. Called by background worker."""
+    """Process products whose embedding_status is 'pending'.
+    Products marked 'failed' are NOT auto-retried; they require explicit reset
+    (content change, model change, or admin action)."""
     global _init_logged
     if not is_embedding_available():
         if not _init_logged:
@@ -65,96 +62,137 @@ async def process_pending_embeddings() -> dict:
         return {"status": "unavailable", "processed": 0, "failed": 0}
 
     if not _init_logged:
-        logger.warning("EMBEDDING API: %s model=%s",
+        logger.warning("EMBEDDING API: %s model=%s dim=%s",
                        settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL,
-                       settings.EMBEDDING_MODEL)
+                       settings.EMBEDDING_MODEL, settings.EMBEDDING_DIM)
         _init_logged = True
 
     result = {"status": "completed", "processed": 0, "failed": 0}
 
     async with async_session() as db:
-        while True:
-            query = select(Product).where(
-                Product.is_active == True,
-                Product.embedding_status.in_(["pending", "failed"]),
-            ).limit(settings.EMBEDDING_BATCH_SIZE)
+        # Only claim 'pending' products — never auto-retry 'failed'.
+        query = (
+            select(Product)
+            .where(Product.is_active == True, Product.embedding_status == "pending")
+            .limit(settings.EMBEDDING_BATCH_SIZE)
+        )
+        db_result = await db.execute(query)
+        products = list(db_result.scalars().all())
 
-            db_result = await db.execute(query)
-            products = list(db_result.scalars().all())
-            if not products:
-                break
+        if not products:
+            return result
 
-            texts_to_embed: list[tuple[int, str, str]] = []
-            products_to_update: list[tuple[int, str]] = []
-
-            for p in products:
-                text = build_product_embedding_text(
-                    p.name or "", p.category or "", p.description or "",
-                    p.technical_specs or "", p.certifications or "",
+        # Mark claimed products as 'processing' immediately to avoid double-processing
+        for p in products:
+            await db.execute(
+                update(Product).where(Product.id == p.id).values(
+                    embedding_status="processing"
                 )
-                new_hash = compute_embedding_hash(text)
-                if p.embedding_hash == new_hash and p.embedding_model == settings.EMBEDDING_MODEL and p.embedding is not None:
+            )
+        await db.commit()
+
+        # Build text + hash for each
+        tasks = []
+        for p in products:
+            text = await _product_embedding_text(p)
+            new_hash = compute_embedding_hash(text)
+            # Skip if hash+model already matches and embedding exists
+            if (
+                p.embedding is not None
+                and p.embedding_hash == new_hash
+                and p.embedding_model == settings.EMBEDDING_MODEL
+            ):
+                await db.execute(
+                    update(Product).where(Product.id == p.id).values(
+                        embedding_status="completed", embedded_at=datetime.now(timezone.utc)
+                    )
+                )
+                continue
+            tasks.append((p.id, text, new_hash))
+
+        await db.commit()
+
+        if not tasks:
+            return result
+
+        # Send batch to API
+        try:
+            batch_texts = [t[1] for t in tasks]
+            vectors = await embedding_api_call_with_retry(batch_texts)
+
+            # Validate dimension
+            if vectors and vectors[0]:
+                actual_dim = len(vectors[0])
+                if actual_dim != settings.EMBEDDING_DIM:
+                    logger.warning(
+                        "EMBEDDING dimension mismatch: got %d, config %d. Marking batch failed.",
+                        actual_dim, settings.EMBEDDING_DIM,
+                    )
+                    for pid, _, _ in tasks:
+                        await db.execute(
+                            update(Product).where(Product.id == pid).values(
+                                embedding_status="failed",
+                                embedding_error=f"dimension mismatch: got {actual_dim}, expected {settings.EMBEDDING_DIM}",
+                            )
+                        )
+                    await db.commit()
+                    result["failed"] += len(tasks)
+                    result["status"] = "partial"
+                    return result
+
+            processed = 0
+            failed = 0
+            for (pid, _, new_hash), vec in zip(tasks, vectors):
+                # Re-check product is still active before writing back (race condition guard)
+                current = await _recheck_product(db, pid)
+                if current is None:
+                    logger.warning("EMBEDDING: skipped inactive/deleted product %s", pid)
+                    continue
+
+                if vec and len(vec) == settings.EMBEDDING_DIM:
                     await db.execute(
-                        update(Product).where(Product.id == p.id).values(
-                            embedding_status="completed", embedded_at=datetime.now(timezone.utc)
+                        update(Product).where(Product.id == pid).values(
+                            embedding=vec,
+                            embedding_hash=new_hash,
+                            embedding_model=settings.EMBEDDING_MODEL,
+                            embedding_status="completed",
+                            embedding_retry_count=0,
+                            embedding_error=None,
+                            embedded_at=datetime.now(timezone.utc),
                         )
                     )
-                    continue
-                texts_to_embed.append((p.id, text, new_hash))
-
-            if not texts_to_embed:
-                await db.commit()
-                continue
-
-            try:
-                batch_texts = [t[1] for t in texts_to_embed]
-                vectors = await embedding_api_call_with_retry(batch_texts)
-
-                processed = 0
-                failed = 0
-                for (pid, _, new_hash), vec in zip(texts_to_embed, vectors):
-                    if vec and len(vec) > 0:
-                        await db.execute(
-                            update(Product).where(Product.id == pid).values(
-                                embedding=vec,
-                                embedding_hash=new_hash,
-                                embedding_model=settings.EMBEDDING_MODEL,
-                                embedding_status="completed",
-                                embedded_at=datetime.now(timezone.utc),
-                            )
+                    processed += 1
+                else:
+                    await db.execute(
+                        update(Product).where(Product.id == pid).values(
+                            embedding_status="failed",
+                            embedding_error="empty or wrong-dimension vector",
                         )
-                        processed += 1
-                    else:
-                        await db.execute(
-                            update(Product).where(Product.id == pid).values(
-                                embedding_status="failed"
-                            )
-                        )
-                        failed += 1
+                    )
+                    failed += 1
 
-                await db.commit()
-                result["processed"] += processed
-                result["failed"] += failed
-                logger.warning("Batch: %d ok, %d failed", processed, failed)
+            await db.commit()
+            result["processed"] += processed
+            result["failed"] += failed
+            logger.warning("EMBEDDING batch: %d ok, %d failed", processed, failed)
 
-            except Exception as e:
-                await db.rollback()
-                for pid, _, _ in texts_to_embed:
-                    try:
-                        await db.execute(
-                            update(Product).where(Product.id == pid).values(
-                                embedding_status="failed"
-                            )
-                        )
-                    except Exception:
-                        pass
-                await db.commit()
-                result["failed"] += len(texts_to_embed)
-                logger.warning("Embedding batch failed: %s", str(e)[:200])
-                result["status"] = "partial"
+        except Exception as e:
+            await db.rollback()
+            # Permanent failure after all retries → mark failed, DON'T auto-retry
+            for pid, _, _ in tasks:
+                await db.execute(
+                    update(Product).where(Product.id == pid).values(
+                        embedding_status="failed",
+                        embedding_error=str(e)[:500],
+                    )
+                )
+            await db.commit()
+            result["failed"] += len(tasks)
+            result["status"] = "partial"
+            logger.warning("EMBEDDING batch permanently failed: %s", str(e)[:200])
 
     if result["processed"] > 0 or result["failed"] > 0:
-        logger.warning("Embedding run complete: %s", result)
+        logger.warning("EMBEDDING run: %s", result)
     return result
 
 
@@ -166,6 +204,10 @@ async def generate_query_embedding(text: str) -> list[float]:
     vectors = await embedding_api_call_with_retry([text])
     if not vectors or not vectors[0]:
         raise RuntimeError("Embedding API returned empty result")
+    if len(vectors[0]) != settings.EMBEDDING_DIM:
+        raise RuntimeError(
+            f"Embedding dimension mismatch: got {len(vectors[0])}, expected {settings.EMBEDDING_DIM}"
+        )
     return vectors[0]
 
 
@@ -182,6 +224,11 @@ async def get_embedding_stats(db: AsyncSession) -> dict:
             Product.is_active == True, Product.embedding_status == "pending"
         )
     )
+    processing = await db.execute(
+        select(func.count(Product.id)).where(
+            Product.is_active == True, Product.embedding_status == "processing"
+        )
+    )
     failed = await db.execute(
         select(func.count(Product.id)).where(
             Product.is_active == True, Product.embedding_status == "failed"
@@ -191,5 +238,6 @@ async def get_embedding_stats(db: AsyncSession) -> dict:
         "total": total.scalar() or 0,
         "completed": completed.scalar() or 0,
         "pending": pending.scalar() or 0,
+        "processing": processing.scalar() or 0,
         "failed": failed.scalar() or 0,
     }

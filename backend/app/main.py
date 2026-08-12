@@ -36,6 +36,7 @@ async def _embedding_worker():
 async def lifespan(app: FastAPI):
     global _worker_task
     await init_db()
+    await _reset_stuck_embeddings()
     _worker_task = asyncio.create_task(_embedding_worker())
     yield
     if _worker_task:
@@ -44,6 +45,20 @@ async def lifespan(app: FastAPI):
             await _worker_task
         except asyncio.CancelledError:
             pass
+
+
+async def _reset_stuck_embeddings():
+    """Reset products stuck in 'processing' (from a crashed worker) back to 'pending'."""
+    from sqlalchemy import text
+    from app.core.database import engine
+    try:
+        async with engine.begin() as conn:
+            await conn.execute(text(
+                "UPDATE products SET embedding_status='pending' "
+                "WHERE embedding_status='processing' AND is_active=true"
+            ))
+    except Exception:
+        pass
 
 
 app = FastAPI(

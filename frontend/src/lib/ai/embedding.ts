@@ -5,7 +5,7 @@
 
 import { isLLMAvailable, getEmbedding as apiGetEmbedding } from "./api-config"
 
-const EMBEDDING_DIM = 1536
+const EMBEDDING_DIM = 1024
 
 // ── Mock (hash-based deterministic vectors) ───────────────────────
 

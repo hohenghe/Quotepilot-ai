@@ -15,6 +15,10 @@ FATAL_STATUSES = {400, 401, 403, 404}
 RETRYABLE_STATUSES = {429, 500, 502, 503, 504}
 
 
+class FatalEmbeddingError(RuntimeError):
+    """Raised for permanent errors that must NOT be retried."""
+
+
 async def embedding_api_call_with_retry(
     inputs: list[str],
 ) -> list[list[float]]:
@@ -39,7 +43,7 @@ async def embedding_api_call_with_retry(
                 data = resp.json()
                 embeddings = [d.get("embedding", []) for d in data.get("data", [])]
                 if len(embeddings) != len(inputs):
-                    raise RuntimeError(
+                    raise FatalEmbeddingError(
                         f"Mismatched response: got {len(embeddings)} vectors for {len(inputs)} inputs"
                     )
                 return embeddings
@@ -48,7 +52,8 @@ async def embedding_api_call_with_retry(
             body = resp.text[:500]
 
             if status in FATAL_STATUSES:
-                raise RuntimeError(f"Fatal API error {status}: {body}") from None
+                # Permanent error — do NOT retry
+                raise FatalEmbeddingError(f"Fatal API error {status}: {body}") from None
 
             if status in RETRYABLE_STATUSES:
                 retry_after = _parse_retry_after(resp.headers.get("Retry-After"))
@@ -61,7 +66,10 @@ async def embedding_api_call_with_retry(
                     await asyncio.sleep(retry_after)
                 continue
 
-            raise RuntimeError(f"Unexpected API error {status}: {body}") from None
+            raise FatalEmbeddingError(f"Unexpected API error {status}: {body}") from None
+
+        except FatalEmbeddingError:
+            raise
 
         except httpx.TimeoutException:
             delay = _backoff_delay(attempt)

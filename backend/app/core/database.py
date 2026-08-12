@@ -52,10 +52,12 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("lead_time_days", "INTEGER", None),
             ("image_url", "TEXT", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
-            ("embedding", "vector(1536)", None),
+            ("embedding", "vector(1024)", None),
             ("embedding_hash", "TEXT", None),
             ("embedding_model", "TEXT", None),
             ("embedding_status", "TEXT DEFAULT 'pending'", None),
+            ("embedding_retry_count", "INTEGER DEFAULT 0", None),
+            ("embedding_error", "TEXT", None),
             ("embedded_at", "TIMESTAMPTZ", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
             ("updated_at", "TIMESTAMPTZ", None),
@@ -175,6 +177,7 @@ async def init_db():
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         await _sync_columns(conn)
+        await _migrate_embedding_dimension(conn)
         # Drop unique constraint on sku if it exists (allows duplicate SKUs across sellers)
         try:
             await conn.execute(text(
@@ -182,3 +185,45 @@ async def init_db():
             ))
         except Exception:
             pass
+
+
+async def _migrate_embedding_dimension(conn):
+    """Ensure products.embedding column matches settings.EMBEDDING_DIM.
+    Existing embeddings (if any) are NULL-safe since generation never succeeded,
+    so we drop + recreate with the correct dimension and reset status to pending."""
+    try:
+        result = await conn.execute(text(
+            "SELECT data_type, udt_name FROM information_schema.columns "
+            "WHERE table_name = 'products' AND column_name = 'embedding'"
+        ))
+        row = result.first()
+        if not row:
+            return
+
+        # Check if column dimension matches settings.EMBEDDING_DIM
+        # pgvector stores dimension in information_schema or atttypmod
+        dim_result = await conn.execute(text(
+            "SELECT atttypmod FROM pg_attribute "
+            "WHERE attrelid = 'products'::regclass AND attname = 'embedding'"
+        ))
+        dim_row = dim_result.first()
+        # atttypmod for vector(n) is n + 4 (pgvector stores dim + 4 in atttypmod)
+        if dim_row and dim_row[0] is not None:
+            actual_dim = dim_row[0] - 4
+            if actual_dim != settings.EMBEDDING_DIM:
+                logger.warning(
+                    "Embedding dimension mismatch: DB=%s config=%s, migrating...",
+                    actual_dim, settings.EMBEDDING_DIM,
+                )
+                await conn.execute(text("ALTER TABLE products DROP COLUMN embedding"))
+                await conn.execute(text(
+                    f"ALTER TABLE products ADD COLUMN embedding vector({settings.EMBEDDING_DIM})"
+                ))
+                await conn.execute(text(
+                    "UPDATE products SET embedding_status='pending', embedding_hash=NULL, "
+                    "embedding_model=NULL, embedding_retry_count=0, embedding_error=NULL "
+                    "WHERE is_active = true"
+                ))
+                logger.warning("Embedding dimension migrated to %s", settings.EMBEDDING_DIM)
+    except Exception as e:
+        logger.warning("Embedding dimension migration check failed: %s", e)

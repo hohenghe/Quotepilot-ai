@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     EMBEDDING_BASE_URL: str = ""
     EMBEDDING_API_KEY: str = ""
     EMBEDDING_BATCH_SIZE: int = 10
-    EMBEDDING_MAX_RETRIES: int = 3
+    EMBEDDING_MAX_RETRIES: int = 5
     EMBEDDING_TIMEOUT: int = 60
 
     OPENAI_API_KEY: str = ""

@@ -162,8 +162,9 @@ async def delete_product(
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
     product.is_active = False
+    product.embedding_status = "skipped"
     await db.commit()
-    return {"ok": True}
+    return {"ok": True, "id": product_id, "is_active": False}
 
 
 @router.get("/stats/summary")

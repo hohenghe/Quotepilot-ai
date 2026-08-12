@@ -17,10 +17,12 @@ CREATE TABLE IF NOT EXISTS products (
     lead_time_days INTEGER,
     image_url TEXT,
     is_active BOOLEAN DEFAULT TRUE,
-    embedding vector(1536),
+    embedding vector(1024),
     embedding_hash TEXT,
     embedding_model TEXT,
     embedding_status TEXT DEFAULT 'pending',
+    embedding_retry_count INTEGER DEFAULT 0,
+    embedding_error TEXT,
     embedded_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ

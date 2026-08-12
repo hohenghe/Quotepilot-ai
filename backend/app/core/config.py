@@ -5,8 +5,10 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://quotepilot:quotepilot123@localhost:5432/quotepilot"
     DATABASE_URL_SYNC: str = "postgresql+psycopg2://quotepilot:quotepilot123@localhost:5432/quotepilot"
 
-    EMBEDDING_DIM: int = 1536
-    EMBEDDING_MODEL: str = "text-embedding-3-small"
+    EMBEDDING_DIM: int = 1024
+    EMBEDDING_MODEL: str = "text-embedding-v4"
+    EMBEDDING_BASE_URL: str = ""
+    EMBEDDING_API_KEY: str = ""
 
     OPENAI_API_KEY: str = ""
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
@@ -24,3 +26,9 @@ settings = Settings()
 
 def is_llm_available() -> bool:
     return bool(settings.OPENAI_API_KEY)
+
+
+def is_embedding_available() -> bool:
+    key = settings.EMBEDDING_API_KEY or settings.OPENAI_API_KEY
+    url = settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL
+    return bool(key) and bool(url)

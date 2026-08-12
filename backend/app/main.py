@@ -12,6 +12,7 @@ from app.api.inquiries import router as inquiries_router
 from app.api.quotes import router as quotes_router
 from app.api.dashboard import router as dashboard_router
 from app.api.auth import router as auth_router
+from app.api.seller_inquiries import router as seller_inquiries_router
 
 
 @asynccontextmanager
@@ -39,6 +40,7 @@ app.include_router(inquiries_router)
 app.include_router(quotes_router)
 app.include_router(dashboard_router)
 app.include_router(auth_router)
+app.include_router(seller_inquiries_router)
 
 
 @app.get("/")

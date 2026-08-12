@@ -1,8 +1,8 @@
 "use client"
 
 import { useState } from "react"
-import { Sparkles, Copy, TrendingUp, LogOut } from "lucide-react"
-import { analyzeAndMatch, login, register } from "@/lib/api-client"
+import { Sparkles, TrendingUp, LogOut, Send } from "lucide-react"
+import { analyzeAndMatch, login, register, sendInquiryToSeller } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
 import type { AuthFormData } from "@/components/AuthForm"
@@ -14,6 +14,7 @@ export default function BuyerPage() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login")
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [sentInquiries, setSentInquiries] = useState<Set<number>>(new Set())
 
   const user = getUser()
   const loggedIn = isAuthenticated()
@@ -56,6 +57,15 @@ export default function BuyerPage() {
       console.warn("Analysis failed", e)
     } finally {
       setAnalyzing(false)
+    }
+  }
+
+  const handleSendInquiry = async (productId: number) => {
+    try {
+      await sendInquiryToSeller(rawMessage, productId, user?.email || undefined)
+      setSentInquiries(prev => new Set(prev).add(productId))
+    } catch (e: any) {
+      console.warn("Send inquiry failed", e)
     }
   }
 
@@ -122,26 +132,50 @@ export default function BuyerPage() {
               )}
             </div>
             <div className="space-y-3">
-              {result.matchedProducts.map(mp => (
-                <div key={mp.product_id} className="p-4 bg-gray-50 rounded-xl">
-                  <div className="flex items-start justify-between mb-2">
-                    <div>
-                      <h3 className="font-semibold text-gray-900">{mp.product_name}</h3>
-                      <p className="text-xs text-gray-500">{mp.match_reason}</p>
+              {result.matchedProducts.map(mp => {
+                const sent = sentInquiries.has(mp.product_id)
+                return (
+                  <div key={mp.product_id} className="p-4 bg-gray-50 rounded-xl">
+                    <div className="flex items-start justify-between mb-2">
+                      <div>
+                        <h3 className="font-semibold text-gray-900">{mp.product_name}</h3>
+                        <p className="text-xs text-gray-500">{mp.match_reason}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-sm font-bold text-green-600">
+                          {Math.round(mp.match_score * 100)}%
+                        </span>
+                      </div>
                     </div>
-                    <span className="text-sm font-bold text-green-600">
-                      {Math.round(mp.match_score * 100)}%
-                    </span>
+                    <div className="flex flex-wrap gap-3 text-xs text-gray-600 mb-3">
+                      {mp.moq && <span>MOQ: {mp.moq}</span>}
+                      {mp.lead_time_days && <span>Lead Time: {mp.lead_time_days}d</span>}
+                      {mp.certifications && <span>Certs: {mp.certifications}</span>}
+                      {mp.pricing && <span className="text-gray-400">{mp.pricing}</span>}
+                    </div>
+                    <button
+                      onClick={() => handleSendInquiry(mp.product_id)}
+                      disabled={sent}
+                      className={`w-full py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
+                        sent
+                          ? "bg-green-50 text-green-600 border border-green-200 cursor-default"
+                          : "bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100"
+                      }`}
+                    >
+                      <Send className="w-3.5 h-3.5" />
+                      {sent ? "Inquiry Sent" : "Send Inquiry to Seller"}
+                    </button>
                   </div>
-                  <div className="flex flex-wrap gap-3 text-xs text-gray-600">
-                    {mp.moq && <span>MOQ: {mp.moq}</span>}
-                    {mp.lead_time_days && <span>Lead Time: {mp.lead_time_days}d</span>}
-                    {mp.certifications && <span>Certs: {mp.certifications}</span>}
-                    {mp.pricing && <span className="text-gray-400">{mp.pricing}</span>}
-                  </div>
-                </div>
-              ))}
+                )
+              })}
             </div>
+          </div>
+        )}
+
+        {result && result.matchedProducts.length === 0 && (
+          <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+            <p>No matching products found for your inquiry.</p>
+            <p className="text-sm mt-2">Try describing your requirements in more detail.</p>
           </div>
         )}
       </div>

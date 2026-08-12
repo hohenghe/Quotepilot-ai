@@ -98,6 +98,18 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("error_message", "TEXT", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
+        "seller_inquiries": [
+            ("id", "BIGSERIAL PRIMARY KEY", None),
+            ("inquiry_id", "INTEGER", None),
+            ("buyer_id", "INTEGER", None),
+            ("seller_id", "INTEGER NOT NULL", None),
+            ("product_id", "INTEGER", None),
+            ("raw_message", "TEXT NOT NULL", None),
+            ("buyer_email", "TEXT", None),
+            ("status", "TEXT DEFAULT 'pending'", None),
+            ("reply_body", "TEXT", None),
+            ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+        ],
     }
 
 
@@ -152,6 +164,7 @@ async def init_db():
     from app.models.inquiry import Inquiry, InquiryAnalysis
     from app.models.quote import Quote
     from app.models.user import User
+    from app.models.seller_inquiry import SellerInquiry
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)

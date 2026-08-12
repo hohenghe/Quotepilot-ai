@@ -317,3 +317,33 @@ export async function adminListInquiries(
   )
   return { total: data.total, items: data.items.map(adaptInquiry) }
 }
+
+// ── Seller Inquiries ──────────────────────────────────────────────
+
+export interface SellerInquiryItem {
+  id: number
+  raw_message: string
+  buyer_email: string | null
+  product_id: number | null
+  status: string
+  reply_body: string | null
+  created_at: string | null
+}
+
+export async function sendInquiryToSeller(inquiryText: string, productId: number, buyerEmail?: string): Promise<{ ok: boolean; id: number }> {
+  return await request("/api/seller-inquiries/send", {
+    method: "POST",
+    body: JSON.stringify({ inquiry_text: inquiryText, product_id: productId, buyer_email: buyerEmail || null }),
+  })
+}
+
+export async function getSellerReceivedInquiries(page = 1): Promise<{ total: number; items: SellerInquiryItem[] }> {
+  return await request(`/api/seller-inquiries/received?page=${page}&page_size=50`)
+}
+
+export async function generateSellerReply(inquiryId: number): Promise<{ subject: string; email_body: string }> {
+  return await request("/api/seller-inquiries/generate-reply", {
+    method: "POST",
+    body: JSON.stringify({ inquiry_id: inquiryId }),
+  })
+}

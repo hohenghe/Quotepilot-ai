@@ -2,7 +2,9 @@ import os
 import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, update
+from pydantic import BaseModel
+from typing import List
 from app.core.database import get_db
 from app.core.auth import require_seller, require_admin, get_current_user
 from app.models.product import Product
@@ -148,6 +150,57 @@ async def update_product(
     await db.commit()
     await db.refresh(product)
     return ProductResponse.model_validate(product)
+
+
+class BatchDeleteRequest(BaseModel):
+    product_ids: List[int]
+
+
+@router.delete("/batch")
+async def delete_products_batch(
+    data: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
+):
+    """Bulk soft-delete multiple products owned by the current seller.
+    One HTTP request, one bulk UPDATE, one commit."""
+    ids = data.product_ids
+    if not ids:
+        return {"success": True, "deleted_count": 0}
+
+    # Chunk to avoid exceeding DB IN(...) parameter limits
+    chunk_size = 500
+    deleted_count = 0
+    for i in range(0, len(ids), chunk_size):
+        chunk = ids[i:i + chunk_size]
+        result = await db.execute(
+            update(Product)
+            .where(
+                Product.id.in_(chunk),
+                Product.seller_id == user.id,
+                Product.is_active == True,
+            )
+            .values(is_active=False, embedding_status="skipped")
+        )
+        deleted_count += result.rowcount or 0
+
+    await db.commit()
+    return {"success": True, "deleted_count": deleted_count}
+
+
+@router.delete("/all")
+async def delete_all_products(
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
+):
+    """Bulk soft-delete ALL active products owned by the current seller."""
+    result = await db.execute(
+        update(Product)
+        .where(Product.seller_id == user.id, Product.is_active == True)
+        .values(is_active=False, embedding_status="skipped")
+    )
+    await db.commit()
+    return {"success": True, "deleted_count": result.rowcount or 0}
 
 
 @router.delete("/{product_id}")

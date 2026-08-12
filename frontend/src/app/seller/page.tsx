@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Upload, Trash2, Search, LogOut, Package, Mail, FileText, Copy, CheckSquare, Square } from "lucide-react"
 import { isAuthenticated, isSeller, getUser, logout } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteSellerProduct } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts } from "@/lib/api-client"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useT } from "@/i18n/I18nProvider"
 import type { SellerInquiryItem } from "@/lib/api-client"
@@ -108,14 +108,13 @@ export default function SellerPage() {
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return
     setDeleting(true)
-    const idsToDelete = new Set(selectedIds)
-    // Immediately remove from UI
-    setProducts(prev => prev.filter(p => !idsToDelete.has(p.id)))
+    const idsToDelete = Array.from(selectedIds)
     setSelectedIds(new Set())
     try {
-      for (const id of idsToDelete) {
-        await deleteSellerProduct(id)
-      }
+      // One batch DELETE request for all selected products
+      const deletedCount = await deleteProducts(idsToDelete)
+      setProducts(prev => prev.filter(p => !selectedIds.has(p.id)))
+      setMsg({ type: "success", text: `${deletedCount} products deleted` })
       await loadProducts()
     } catch (err: any) {
       setMsg({ type: "error", text: err.message || "Delete failed" })

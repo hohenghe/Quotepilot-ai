@@ -360,3 +360,18 @@ export async function getSellerProducts(): Promise<{ total: number; items: Produ
 export async function deleteSellerProduct(productId: number): Promise<void> {
   await request(`/api/products/${productId}`, { method: "DELETE" })
 }
+
+export async function deleteProducts(productIds: number[]): Promise<number> {
+  const data = await request<{ success: boolean; deleted_count: number }>("/api/products/batch", {
+    method: "DELETE",
+    body: JSON.stringify({ product_ids: productIds }),
+  })
+  return data.deleted_count
+}
+
+export async function deleteAllProducts(): Promise<number> {
+  const data = await request<{ success: boolean; deleted_count: number }>("/api/products/all", {
+    method: "DELETE",
+  })
+  return data.deleted_count
+}

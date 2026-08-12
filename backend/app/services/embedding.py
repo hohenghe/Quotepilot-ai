@@ -1,119 +1,195 @@
 import hashlib
 import logging
-import httpx
+from datetime import datetime, timezone
+from sqlalchemy import select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from app.core.database import async_session
 from app.core.config import settings, is_embedding_available
+from app.core.retry import embedding_api_call_with_retry
+from app.models.product import Product
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [EMBED] %(message)s")
 logger = logging.getLogger(__name__)
 
-_product_embeddings: dict[str, list[float]] = {}
-_embed_logged = False
+_init_logged = False
 
 
-def _text_hash(text: str) -> str:
-    return hashlib.md5(text.encode()).hexdigest()
+def build_product_embedding_text(
+    name: str = "",
+    category: str = "",
+    description: str = "",
+    technical_specs: str = "",
+    certifications: str = "",
+) -> str:
+    parts = [name, category]
+    if description:
+        parts.append(description)
+    if technical_specs:
+        parts.append(technical_specs)
+    if certifications:
+        parts.append(certifications)
+    return " | ".join(p for p in parts if p)
 
 
-def _get_product_key(product_id: int, text: str) -> str:
-    return f"{product_id}:{_text_hash(text)}"
+def compute_embedding_hash(text: str) -> str:
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
-def get_cached_embedding(product_id: int, text: str) -> list[float] | None:
-    return _product_embeddings.get(_get_product_key(product_id, text))
+def embedding_needs_update(product: Product) -> bool:
+    if product.embedding is None:
+        return True
+    if product.embedding_status == "failed":
+        return True
+    current_text = build_product_embedding_text(
+        product.name or "",
+        product.category or "",
+        product.description or "",
+        product.technical_specs or "",
+        product.certifications or "",
+    )
+    new_hash = compute_embedding_hash(current_text)
+    if product.embedding_hash != new_hash:
+        return True
+    if product.embedding_model != settings.EMBEDDING_MODEL:
+        return True
+    return False
 
 
-def set_cached_embedding(product_id: int, text: str, vec: list[float]) -> None:
-    _product_embeddings[_get_product_key(product_id, text)] = vec
-
-
-def invalidate_product_embeddings(product_id: int) -> None:
-    prefix = f"{product_id}:"
-    keys = [k for k in _product_embeddings if k.startswith(prefix)]
-    for k in keys:
-        del _product_embeddings[k]
-
-
-async def _batch_api_embedding(texts: list[str]) -> list[list[float]]:
-    key = settings.EMBEDDING_API_KEY or settings.OPENAI_API_KEY
-    url = settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL
-
-    async with httpx.AsyncClient(timeout=120.0) as client:
-        resp = await client.post(
-            f"{url}/embeddings",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {key}",
-            },
-            json={
-                "model": settings.EMBEDDING_MODEL,
-                "input": texts,
-            },
-        )
-        if resp.status_code != 200:
-            raise RuntimeError(f"Embedding API error {resp.status_code}: {resp.text[:300]}")
-        data = resp.json()
-        return [d.get("embedding", []) for d in data.get("data", [])]
-
-
-async def compute_embeddings_batch(
-    product_texts: list[tuple[int, str]],
-) -> int:
-    """Pre-compute embeddings for a batch of products. Returns count computed."""
-    global _embed_logged
+async def process_pending_embeddings() -> dict:
+    """Process all products that need embedding. Called by background worker."""
+    global _init_logged
     if not is_embedding_available():
-        return 0
+        if not _init_logged:
+            logger.warning("EMBEDDING: not configured, skipping")
+            _init_logged = True
+        return {"status": "unavailable", "processed": 0, "failed": 0}
 
-    if not _embed_logged:
-        logger.warning("EMBEDDING API: %s model=%s", settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL, settings.EMBEDDING_MODEL)
-        _embed_logged = True
+    if not _init_logged:
+        logger.warning("EMBEDDING API: %s model=%s",
+                       settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL,
+                       settings.EMBEDDING_MODEL)
+        _init_logged = True
 
-    uncached = [(pid, text) for pid, text in product_texts if get_cached_embedding(pid, text) is None]
-    if not uncached:
-        return 0
+    result = {"status": "completed", "processed": 0, "failed": 0}
 
-    batch_size = 100
-    computed = 0
-    for i in range(0, len(uncached), batch_size):
-        batch = uncached[i:i + batch_size]
-        texts = [text for _, text in batch]
-        try:
-            vectors = await _batch_api_embedding(texts)
-            for (pid, text), vec in zip(batch, vectors):
-                if vec:
-                    set_cached_embedding(pid, text, vec)
-                    computed += 1
-        except Exception as e:
-            logger.warning("Batch embedding failed at offset %d: %s", i, e)
-            break
+    async with async_session() as db:
+        while True:
+            query = select(Product).where(
+                Product.is_active == True,
+                Product.embedding_status.in_(["pending", "failed"]),
+            ).limit(settings.EMBEDDING_BATCH_SIZE)
 
-    if computed:
-        logger.warning("Embedded %d products (total cache: %d)", computed, len(_product_embeddings))
-    return computed
+            db_result = await db.execute(query)
+            products = list(db_result.scalars().all())
+            if not products:
+                break
 
+            texts_to_embed: list[tuple[int, str, str]] = []
+            products_to_update: list[tuple[int, str]] = []
 
-async def generate_embedding(text: str) -> list[float]:
-    cache_key = text[:500]
-    if is_embedding_available():
-        try:
-            key = settings.EMBEDDING_API_KEY or settings.OPENAI_API_KEY
-            url = settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    f"{url}/embeddings",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {key}",
-                    },
-                    json={"model": settings.EMBEDDING_MODEL, "input": text},
+            for p in products:
+                text = build_product_embedding_text(
+                    p.name or "", p.category or "", p.description or "",
+                    p.technical_specs or "", p.certifications or "",
                 )
-                if resp.status_code != 200:
-                    raise RuntimeError(f"Embedding API error {resp.status_code}")
-                data = resp.json()
-                return data.get("data", [{}])[0].get("embedding", [])
-        except Exception as e:
-            logger.warning("Embedding API failed, using mock: %s", e)
+                new_hash = compute_embedding_hash(text)
+                if p.embedding_hash == new_hash and p.embedding_model == settings.EMBEDDING_MODEL and p.embedding is not None:
+                    await db.execute(
+                        update(Product).where(Product.id == p.id).values(
+                            embedding_status="completed", embedded_at=datetime.now(timezone.utc)
+                        )
+                    )
+                    continue
+                texts_to_embed.append((p.id, text, new_hash))
 
-    import random
-    seed = int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
-    rng = random.Random(seed)
-    return [rng.uniform(-1, 1) for _ in range(settings.EMBEDDING_DIM)]
+            if not texts_to_embed:
+                await db.commit()
+                continue
+
+            try:
+                batch_texts = [t[1] for t in texts_to_embed]
+                vectors = await embedding_api_call_with_retry(batch_texts)
+
+                processed = 0
+                failed = 0
+                for (pid, _, new_hash), vec in zip(texts_to_embed, vectors):
+                    if vec and len(vec) > 0:
+                        await db.execute(
+                            update(Product).where(Product.id == pid).values(
+                                embedding=vec,
+                                embedding_hash=new_hash,
+                                embedding_model=settings.EMBEDDING_MODEL,
+                                embedding_status="completed",
+                                embedded_at=datetime.now(timezone.utc),
+                            )
+                        )
+                        processed += 1
+                    else:
+                        await db.execute(
+                            update(Product).where(Product.id == pid).values(
+                                embedding_status="failed"
+                            )
+                        )
+                        failed += 1
+
+                await db.commit()
+                result["processed"] += processed
+                result["failed"] += failed
+                logger.warning("Batch: %d ok, %d failed", processed, failed)
+
+            except Exception as e:
+                await db.rollback()
+                for pid, _, _ in texts_to_embed:
+                    try:
+                        await db.execute(
+                            update(Product).where(Product.id == pid).values(
+                                embedding_status="failed"
+                            )
+                        )
+                    except Exception:
+                        pass
+                await db.commit()
+                result["failed"] += len(texts_to_embed)
+                logger.warning("Embedding batch failed: %s", str(e)[:200])
+                result["status"] = "partial"
+
+    if result["processed"] > 0 or result["failed"] > 0:
+        logger.warning("Embedding run complete: %s", result)
+    return result
+
+
+async def generate_query_embedding(text: str) -> list[float]:
+    """Generate embedding for a single query text. Only for inquiry matching."""
+    if not is_embedding_available():
+        raise RuntimeError("Embedding service is not configured")
+
+    vectors = await embedding_api_call_with_retry([text])
+    if not vectors or not vectors[0]:
+        raise RuntimeError("Embedding API returned empty result")
+    return vectors[0]
+
+
+async def get_embedding_stats(db: AsyncSession) -> dict:
+    from sqlalchemy import func
+    total = await db.execute(select(func.count(Product.id)).where(Product.is_active == True))
+    completed = await db.execute(
+        select(func.count(Product.id)).where(
+            Product.is_active == True, Product.embedding_status == "completed"
+        )
+    )
+    pending = await db.execute(
+        select(func.count(Product.id)).where(
+            Product.is_active == True, Product.embedding_status == "pending"
+        )
+    )
+    failed = await db.execute(
+        select(func.count(Product.id)).where(
+            Product.is_active == True, Product.embedding_status == "failed"
+        )
+    )
+    return {
+        "total": total.scalar() or 0,
+        "completed": completed.scalar() or 0,
+        "pending": pending.scalar() or 0,
+        "failed": failed.scalar() or 0,
+    }

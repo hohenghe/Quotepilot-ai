@@ -1,21 +1,14 @@
 import logging
 from typing import Any
-from app.services.embedding import generate_embedding, get_cached_embedding, set_cached_embedding, compute_embeddings_batch
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import is_embedding_available
+from app.services.embedding import generate_query_embedding
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [RAG] %(message)s")
 logger = logging.getLogger(__name__)
 
 _rag_logged = False
-
-
-def cosine_similarity(a: list[float], b: list[float]) -> float:
-    dot = sum(x * y for x, y in zip(a, b))
-    norm_a = sum(x * x for x in a) ** 0.5
-    norm_b = sum(x * x for x in b) ** 0.5
-    if norm_a == 0 or norm_b == 0:
-        return 0.0
-    return dot / (norm_a * norm_b)
 
 
 def _keyword_score(query: str, product: dict[str, Any]) -> float:
@@ -45,64 +38,125 @@ def _keyword_score(query: str, product: dict[str, Any]) -> float:
     return min(score, 1.0)
 
 
-def _product_text(p: dict[str, Any]) -> str:
-    return f"{p.get('name', '')} {p.get('category', '')} {p.get('description', '')} {p.get('technical_specs', '')}"
-
-
-async def precompute_product_embeddings(products: list[dict[str, Any]]) -> int:
-    """Pre-compute embeddings for all uncached products. Called after upload or on search."""
-    if not is_embedding_available():
-        return 0
-    texts = [(p["id"], _product_text(p)) for p in products if get_cached_embedding(p["id"], _product_text(p)) is None]
-    return await compute_embeddings_batch(texts)
-
-
 async def search_products_hybrid(
+    db: AsyncSession,
     query: str,
-    products: list[dict[str, Any]],
     top_k: int = 5,
-    vector_weight: float = 0.0,
-) -> list[tuple[dict[str, Any], float]]:
+    candidate_limit: int = 50,
+) -> list[dict[str, Any]]:
+    """Hybrid search: pgvector cosine similarity + keyword reranking."""
     global _rag_logged
     use_vector = is_embedding_available()
 
     if use_vector:
         if not _rag_logged:
-            logger.warning("SEARCH MODE: vector(60%%) + keyword(40%%) on %d products", len(products))
+            logger.warning("SEARCH MODE: vector + keyword on DB")
             _rag_logged = True
-        vector_weight = 0.6
+
+        try:
+            query_vec = await generate_query_embedding(query)
+        except Exception as e:
+            logger.warning("Query embedding failed, falling back to keyword-only: %s", str(e)[:200])
+            use_vector = False
+            # Return a special indicator
     else:
         if not _rag_logged:
-            logger.warning("SEARCH MODE: keyword-only on %d products", len(products))
+            logger.warning("SEARCH MODE: keyword-only on DB")
             _rag_logged = True
 
-    # Pre-compute missing embeddings in batch BEFORE searching
-    if use_vector:
-        await precompute_product_embeddings(products)
+    if use_vector and query_vec:
+        # pgvector cosine distance search: <=> returns cosine distance
+        # Convert to parameter array format
+        vec_str = "[" + ",".join(str(v) for v in query_vec) + "]"
+        sql = text(f"""
+            SELECT id, name, sku, category, description, technical_specs, certifications,
+                   moq, unit_price, price_range_low, price_range_high, pricing, lead_time_days,
+                   seller_id, embedding_status,
+                   1 - (embedding <=> :vec ::vector) AS vector_score
+            FROM products
+            WHERE is_active = true AND embedding_status = 'completed'
+            ORDER BY embedding <=> :vec ::vector
+            LIMIT :limit
+        """)
+        result = await db.execute(sql, {"vec": vec_str, "limit": candidate_limit})
+        rows = result.fetchall()
+    else:
+        rows = []
 
-    query_vec = None
-    if use_vector:
-        try:
-            query_vec = await generate_embedding(query)
-        except Exception:
-            logger.warning("Vector search failed, falling back to keyword-only")
-            use_vector = False
-            vector_weight = 0.0
+    # Build product dicts from vector search results OR from keyword-only fallback
+    if rows:
+        candidates = []
+        for row in rows:
+            d = {
+                "id": row.id,
+                "name": row.name,
+                "sku": row.sku,
+                "category": row.category,
+                "description": row.description,
+                "technical_specs": row.technical_specs,
+                "certifications": row.certifications,
+                "moq": row.moq,
+                "unit_price": row.unit_price,
+                "price_range_low": row.price_range_low,
+                "price_range_high": row.price_range_high,
+                "pricing": row.pricing,
+                "lead_time_days": row.lead_time_days,
+                "seller_id": row.seller_id,
+                "_vector_score": float(row.vector_score) if hasattr(row, "vector_score") else 0.5,
+            }
+            candidates.append(d)
+    else:
+        # Keyword-only fallback: load all active products
+        from sqlalchemy import select
+        from app.models.product import Product
+        result = await db.execute(
+            select(Product).where(Product.is_active == True).limit(candidate_limit * 2)
+        )
+        all_products = list(result.scalars().all())
+        candidates = [
+            {
+                "id": p.id, "name": p.name, "sku": p.sku, "category": p.category,
+                "description": p.description, "technical_specs": p.technical_specs,
+                "certifications": p.certifications, "moq": p.moq,
+                "unit_price": p.unit_price, "price_range_low": p.price_range_low,
+                "price_range_high": p.price_range_high, "pricing": p.pricing,
+                "lead_time_days": p.lead_time_days, "seller_id": p.seller_id,
+                "_vector_score": 0.5,
+            }
+            for p in all_products
+        ]
 
-    results = []
-    for p in products:
-        vs = 0.5
-        if use_vector and query_vec:
-            text = _product_text(p)
-            cached = get_cached_embedding(p["id"], text)
-            if cached:
-                vs = (cosine_similarity(query_vec, cached) + 1) / 2
-
+    # Hybrid scoring: combine vector + keyword
+    scored = []
+    vector_weight = 0.6 if use_vector else 0.0
+    for p in candidates:
+        vs = p.get("_vector_score", 0.5)
         ks = _keyword_score(query, p)
         combined = vector_weight * vs + (1 - vector_weight) * ks
-        results.append((p, combined))
+        scored.append((p, combined))
 
-    results.sort(key=lambda x: x[1], reverse=True)
-    top = [(p, s) for p, s in results[:top_k] if s > 0]
-    logger.warning("RESULTS: %d matched (scores: %s)", len(top), ", ".join(f"{s:.2f}" for _, s in top[:5]))
-    return top
+    scored.sort(key=lambda x: x[1], reverse=True)
+    results = [(p, s) for p, s in scored[:top_k] if s > 0]
+
+    if results:
+        logger.warning("RESULTS: %d matched (scores: %s)",
+                       len(results), ", ".join(f"{s:.2f}" for _, s in results[:5]))
+
+    return [
+        {
+            "product_id": p["id"],
+            "product_name": p["name"],
+            "sku": p.get("sku"),
+            "match_score": round(s, 3),
+            "match_reason": "",
+            "moq": p.get("moq"),
+            "unit_price": p.get("unit_price"),
+            "price_range_low": p.get("price_range_low"),
+            "price_range_high": p.get("price_range_high"),
+            "pricing": p.get("pricing"),
+            "lead_time_days": p.get("lead_time_days"),
+            "certifications": p.get("certifications"),
+            "technical_specs": p.get("technical_specs"),
+        }
+        for p, s in results
+    ]

@@ -52,6 +52,11 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("lead_time_days", "INTEGER", None),
             ("image_url", "TEXT", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
+            ("embedding", "vector(1536)", None),
+            ("embedding_hash", "TEXT", None),
+            ("embedding_model", "TEXT", None),
+            ("embedding_status", "TEXT DEFAULT 'pending'", None),
+            ("embedded_at", "TIMESTAMPTZ", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
             ("updated_at", "TIMESTAMPTZ", None),
         ],
@@ -167,6 +172,7 @@ async def init_db():
     from app.models.seller_inquiry import SellerInquiry
 
     async with engine.begin() as conn:
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         await conn.run_sync(Base.metadata.create_all)
         await _sync_columns(conn)
         # Drop unique constraint on sku if it exists (allows duplicate SKUs across sellers)

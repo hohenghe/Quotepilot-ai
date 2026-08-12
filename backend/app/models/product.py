@@ -1,5 +1,6 @@
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Boolean, Enum as SAEnum
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Boolean
 from sqlalchemy.sql import func
+from pgvector.sqlalchemy import Vector
 from app.core.database import Base
 import enum
 
@@ -35,5 +36,12 @@ class Product(Base):
     lead_time_days = Column(Integer, nullable=True)
     image_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
+
+    embedding = Column(Vector(1536), nullable=True)
+    embedding_hash = Column(String(64), nullable=True, index=True)
+    embedding_model = Column(String(100), nullable=True)
+    embedding_status = Column(String(20), default="pending", index=True)
+    embedded_at = Column(DateTime(timezone=True), nullable=True)
+
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())

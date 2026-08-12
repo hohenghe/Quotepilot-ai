@@ -2,6 +2,7 @@
 QuotePilot AI — Backend API Server
 Main application entry point.
 """
+import asyncio
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,11 +15,35 @@ from app.api.dashboard import router as dashboard_router
 from app.api.auth import router as auth_router
 from app.api.seller_inquiries import router as seller_inquiries_router
 
+_worker_task: asyncio.Task | None = None
+
+
+async def _embedding_worker():
+    """Background worker: periodically process pending product embeddings."""
+    while True:
+        try:
+            from app.services.embedding import process_pending_embeddings
+            result = await process_pending_embeddings()
+            if result["processed"] == 0 and result["failed"] == 0:
+                await asyncio.sleep(30)
+            else:
+                await asyncio.sleep(5)
+        except Exception:
+            await asyncio.sleep(30)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global _worker_task
     await init_db()
+    _worker_task = asyncio.create_task(_embedding_worker())
     yield
+    if _worker_task:
+        _worker_task.cancel()
+        try:
+            await _worker_task
+        except asyncio.CancelledError:
+            pass
 
 
 app = FastAPI(
@@ -62,4 +87,18 @@ async def llm_status():
         "model": settings.LLM_MODEL,
         "key_configured": bool(settings.OPENAI_API_KEY),
         "key_preview": (settings.OPENAI_API_KEY[:8] + "..." + settings.OPENAI_API_KEY[-4:]) if len(settings.OPENAI_API_KEY) > 12 else "NOT SET",
+    }
+
+
+@app.get("/api/debug/embedding-status")
+async def embedding_status():
+    from app.services.embedding import get_embedding_stats
+    from app.core.database import async_session
+    from app.core.config import is_embedding_available, settings
+    async with async_session() as db:
+        stats = await get_embedding_stats(db)
+    return {
+        "configured": is_embedding_available(),
+        "model": settings.EMBEDDING_MODEL,
+        "stats": stats,
     }

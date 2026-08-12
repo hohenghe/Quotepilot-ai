@@ -13,9 +13,15 @@ CREATE TABLE IF NOT EXISTS products (
     price_range_low NUMERIC,
     price_range_high NUMERIC,
     pricing TEXT,
+    seller_id INTEGER,
     lead_time_days INTEGER,
     image_url TEXT,
     is_active BOOLEAN DEFAULT TRUE,
+    embedding vector(1536),
+    embedding_hash TEXT,
+    embedding_model TEXT,
+    embedding_status TEXT DEFAULT 'pending',
+    embedded_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ
 );

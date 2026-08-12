@@ -71,64 +71,44 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
     await db.refresh(analysis)
     inquiry.analyses = [analysis]
 
-    result = await db.execute(
-        select(Product).where(Product.is_active == True)
-    )
-    all_products = result.scalars().all()
+    # New: pgvector-based hybrid search
+    try:
+        match_results = await search_products_hybrid(db, request.raw_message, top_k=5)
+    except Exception as e:
+        logger = __import__("logging").getLogger(__name__)
+        logger.warning("Search failed, returning empty: %s", str(e)[:200])
+        match_results = []
 
-    if all_products:
-        product_dicts = [
-            {
-                "id": p.id,
-                "name": p.name,
-                "sku": p.sku,
-                "category": p.category,
-                "description": p.description,
-                "technical_specs": p.technical_specs,
-                "certifications": p.certifications,
-                "moq": p.moq,
-                "unit_price": p.unit_price,
-                "price_range_low": p.price_range_low,
-                "price_range_high": p.price_range_high,
-                "pricing": p.pricing,
-                "lead_time_days": p.lead_time_days,
-            }
-            for p in all_products
-        ]
+    matched = []
+    for mp in match_results:
+        reasons = []
+        if mp.get("category") == analysis_data.get("product_category"):
+            reasons.append("Category matches inquiry requirements")
+        if mp.get("certifications"):
+            for cert in (analysis_data.get("required_certifications") or []):
+                if cert.lower() in (mp.get("certifications") or "").lower():
+                    reasons.append(f"{cert} certification confirmed")
+                    break
+        if not reasons:
+            reasons.append("Product specifications align with your requirements")
 
-        matches = await search_products_hybrid(request.raw_message, product_dicts, top_k=5)
-        matched = []
-        for p, score in matches:
-            reasons = []
-            if p.get("category") == analysis_data.get("product_category"):
-                reasons.append("Category matches inquiry requirements")
-            if p.get("certifications"):
-                for cert in (analysis_data.get("required_certifications") or []):
-                    if cert.lower() in (p.get("certifications") or "").lower():
-                        reasons.append(f"{cert} certification confirmed")
-                        break
-            if not reasons:
-                reasons.append("Product specifications align with your requirements")
-
-            matched.append(
-                MatchedProduct(
-                    product_id=p["id"],
-                    product_name=p["name"],
-                    sku=p.get("sku"),
-                    match_score=round(score, 3),
-                    match_reason="; ".join(reasons),
-                    moq=p.get("moq"),
-                    unit_price=p.get("unit_price"),
-                    price_range_low=p.get("price_range_low"),
-                    price_range_high=p.get("price_range_high"),
-                    pricing=p.get("pricing"),
-                    lead_time_days=p.get("lead_time_days"),
-                    certifications=p.get("certifications"),
-                    technical_specs=p.get("technical_specs"),
-                )
+        matched.append(
+            MatchedProduct(
+                product_id=mp["product_id"],
+                product_name=mp["product_name"],
+                sku=mp.get("sku"),
+                match_score=mp["match_score"],
+                match_reason="; ".join(reasons),
+                moq=mp.get("moq"),
+                unit_price=mp.get("unit_price"),
+                price_range_low=mp.get("price_range_low"),
+                price_range_high=mp.get("price_range_high"),
+                pricing=mp.get("pricing"),
+                lead_time_days=mp.get("lead_time_days"),
+                certifications=mp.get("certifications"),
+                technical_specs=mp.get("technical_specs"),
             )
-    else:
-        matched = []
+        )
 
     return InquiryAnalysisResult(
         inquiry=InquiryResponse.model_validate(inquiry),

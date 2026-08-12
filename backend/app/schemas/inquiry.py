@@ -50,6 +50,7 @@ class MatchedProduct(BaseModel):
     unit_price: Optional[float] = None
     price_range_low: Optional[float] = None
     price_range_high: Optional[float] = None
+    pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     certifications: Optional[str] = None
     technical_specs: Optional[str] = None

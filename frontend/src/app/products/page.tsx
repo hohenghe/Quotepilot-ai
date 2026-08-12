@@ -7,6 +7,7 @@ import {
   getAllProducts,
   uploadFile,
   deleteProduct,
+  deleteAllProducts,
   refreshProducts,
 } from "@/lib/store"
 import PageHeader from "@/components/PageHeader"
@@ -20,6 +21,8 @@ export default function ProductsPage() {
   const [uploading, setUploading] = useState(false)
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null)
   const [uploadMsg, setUploadMsg] = useState<{ type: "success"; text: string } | { type: "error"; text: string } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   useEffect(() => {
     refreshProducts().then(setProducts)
@@ -57,23 +60,42 @@ export default function ProductsPage() {
     refresh()
   }
 
+  const handleDeleteAll = async () => {
+    setDeleting(true)
+    await deleteAllProducts()
+    setProducts([])
+    setDeleting(false)
+    setShowDeleteConfirm(false)
+  }
+
   return (
     <div>
       <PageHeader
         title={t.products.title}
         description={t.products.countInCatalog(products.length)}
         action={
-          <label className="btn-primary cursor-pointer">
-            <Upload className="w-4 h-4" />
-            {uploading ? t.products.parsing : t.products.uploadFile}
-            <input
-              type="file"
-              className="hidden"
-              accept=".pdf,.xlsx,.xls,.docx,.doc,.csv"
-              onChange={handleUpload}
-              disabled={uploading}
-            />
-          </label>
+          <div className="flex items-center gap-2">
+            {products.length > 0 && (
+              <button
+                className="btn-secondary !bg-red-50 !text-red-600 !border-red-200 hover:!bg-red-100"
+                onClick={() => setShowDeleteConfirm(true)}
+              >
+                <Trash2 className="w-4 h-4" />
+                {t.products.deleteAll}
+              </button>
+            )}
+            <label className="btn-primary cursor-pointer">
+              <Upload className="w-4 h-4" />
+              {uploading ? t.products.parsing : t.products.uploadFile}
+              <input
+                type="file"
+                className="hidden"
+                accept=".pdf,.xlsx,.xls,.docx,.doc,.csv"
+                onChange={handleUpload}
+                disabled={uploading}
+              />
+            </label>
+          </div>
         }
       />
 
@@ -212,6 +234,32 @@ export default function ProductsPage() {
           )}
         </div>
       )}
+
+      {showDeleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl p-6 max-w-sm w-full mx-4">
+            <p className="text-gray-900 font-semibold mb-2">{t.products.deleteAllTitle}</p>
+            <p className="text-sm text-gray-600 mb-5">{t.products.deleteAllDesc(products.length)}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                className="btn-secondary text-sm"
+                onClick={() => setShowDeleteConfirm(false)}
+                disabled={deleting}
+              >
+                {t.common.cancel}
+              </button>
+              <button
+                className="btn-primary !bg-red-600 hover:!bg-red-700 text-sm"
+                onClick={handleDeleteAll}
+                disabled={deleting}
+              >
+                {deleting ? t.products.deleting : t.products.deleteAllConfirm}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   )
 }

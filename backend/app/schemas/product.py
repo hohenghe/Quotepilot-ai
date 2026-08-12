@@ -14,6 +14,7 @@ class ProductCreate(BaseModel):
     unit_price: Optional[float] = None
     price_range_low: Optional[float] = None
     price_range_high: Optional[float] = None
+    pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
 
@@ -29,6 +30,7 @@ class ProductUpdate(BaseModel):
     unit_price: Optional[float] = None
     price_range_low: Optional[float] = None
     price_range_high: Optional[float] = None
+    pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
     is_active: Optional[bool] = None
@@ -46,6 +48,7 @@ class ProductResponse(BaseModel):
     unit_price: Optional[float] = None
     price_range_low: Optional[float] = None
     price_range_high: Optional[float] = None
+    pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
     is_active: bool

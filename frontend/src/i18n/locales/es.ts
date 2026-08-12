@@ -51,6 +51,11 @@ const es = {
     priceRange: "Rango de Precios",
     pricing: "Precios",
     noMatch: (search: string) => `Sin productos que coincidan con "${search}"`,
+    deleteAll: "Eliminar Todo",
+    deleteAllTitle: "¿Eliminar todos los productos?",
+    deleteAllDesc: (n: number) => `Esto eliminará permanentemente los ${n} productos del catálogo. Esta acción no se puede deshacer.`,
+    deleteAllConfirm: "Eliminar Todo",
+    deleting: "Eliminando...",
   },
   inquiry: {
     title: "Análisis de Consultas",

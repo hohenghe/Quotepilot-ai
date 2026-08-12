@@ -30,6 +30,7 @@ class Product(Base):
     unit_price = Column(Float, nullable=True)
     price_range_low = Column(Float, nullable=True)
     price_range_high = Column(Float, nullable=True)
+    pricing = Column(Text, nullable=True)
     lead_time_days = Column(Integer, nullable=True)
     image_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)

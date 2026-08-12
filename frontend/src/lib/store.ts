@@ -138,6 +138,16 @@ export async function deleteProduct(id: number) {
   save(PRODUCTS_KEY, products)
 }
 
+export async function deleteAllProducts(): Promise<void> {
+  if (isSupabaseMode()) {
+    const products = getAllProducts()
+    for (const p of products) {
+      await       getSupabase().from("products").update({ is_active: false }).eq("id", p.id)
+    }
+  }
+  save(PRODUCTS_KEY, [])
+}
+
 export async function uploadFile(file: File): Promise<Product[]> {
   // Parse locally, then upload to Supabase
   const { parseFile } = await import("./ai/file-parser")

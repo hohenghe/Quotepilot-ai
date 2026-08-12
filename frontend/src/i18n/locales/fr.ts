@@ -51,6 +51,11 @@ const fr = {
     priceRange: "Fourchette de Prix",
     pricing: "Tarifs",
     noMatch: (search: string) => `Aucun produit correspondant à "${search}"`,
+    deleteAll: "Tout Supprimer",
+    deleteAllTitle: "Supprimer tous les produits ?",
+    deleteAllDesc: (n: number) => `Cela supprimera définitivement les ${n} produits du catalogue. Cette action est irréversible.`,
+    deleteAllConfirm: "Tout Supprimer",
+    deleting: "Suppression...",
   },
   inquiry: {
     title: "Analyse de Demandes",

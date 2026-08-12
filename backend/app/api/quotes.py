@@ -45,6 +45,7 @@ async def generate_quote(request: QuoteGenerateRequest, db: AsyncSession = Depen
             "unit_price": p.unit_price,
             "price_range_low": p.price_range_low,
             "price_range_high": p.price_range_high,
+            "pricing": p.pricing,
             "lead_time_days": p.lead_time_days,
             "certifications": p.certifications,
         }

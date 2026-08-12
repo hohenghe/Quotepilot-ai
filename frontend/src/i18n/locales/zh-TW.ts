@@ -50,6 +50,11 @@ const zhTW = {
     priceRange: "價格區間",
     pricing: "價格資訊",
     noMatch: (search: string) => `未找到符合 "${search}" 的產品`,
+    deleteAll: "全部刪除",
+    deleteAllTitle: "確定刪除所有產品？",
+    deleteAllDesc: (n: number) => `此操作將永久刪除目錄中的全部 ${n} 個產品，不可撤銷。`,
+    deleteAllConfirm: "全部刪除",
+    deleting: "刪除中...",
   },
   inquiry: {
     title: "詢盤分析",

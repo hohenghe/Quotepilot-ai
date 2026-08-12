@@ -65,7 +65,7 @@ async def upload_product_file(
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db),
 ):
-    allowed_exts = {".pdf", ".xlsx", ".xls", ".docx", ".doc"}
+    allowed_exts = {".pdf", ".xlsx", ".xls", ".docx", ".doc", ".csv"}
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in allowed_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
@@ -102,6 +102,7 @@ async def upload_product_file(
                 unit_price=pdata.get("unit_price"),
                 price_range_low=pdata.get("price_range_low"),
                 price_range_high=pdata.get("price_range_high"),
+                pricing=pdata.get("pricing"),
                 lead_time_days=pdata.get("lead_time_days"),
             )
             db.add(product)

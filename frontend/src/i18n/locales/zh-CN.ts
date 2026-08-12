@@ -50,6 +50,11 @@ const zhCN = {
     priceRange: "价格区间",
     pricing: "价格信息",
     noMatch: (search: string) => `未找到匹配 "${search}" 的产品`,
+    deleteAll: "全部删除",
+    deleteAllTitle: "确定删除所有产品？",
+    deleteAllDesc: (n: number) => `此操作将永久删除目录中的全部 ${n} 个产品，不可撤销。`,
+    deleteAllConfirm: "全部删除",
+    deleting: "删除中...",
   },
   inquiry: {
     title: "询盘分析",

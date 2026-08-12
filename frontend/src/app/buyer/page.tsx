@@ -5,6 +5,7 @@ import { Sparkles, TrendingUp, LogOut, Send } from "lucide-react"
 import { analyzeAndMatch, login, register, sendInquiryToSeller } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
+import LanguageSwitcher from "@/components/LanguageSwitcher"
 import type { AuthFormData } from "@/components/AuthForm"
 import type { FullAnalysisResult } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
@@ -91,9 +92,12 @@ export default function BuyerPage() {
             <Sparkles className="w-5 h-5 text-indigo-500" />
             <span className="text-sm text-gray-500">{user.email}</span>
           </div>
-          <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 flex items-center gap-1 text-sm">
-            <LogOut className="w-4 h-4" /> {t.buyer.signOut}
-          </button>
+          <div className="flex items-center gap-3">
+            <LanguageSwitcher />
+            <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 flex items-center gap-1 text-sm">
+              <LogOut className="w-4 h-4" /> {t.buyer.signOut}
+            </button>
+          </div>
         </div>
 
         <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">

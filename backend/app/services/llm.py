@@ -8,6 +8,8 @@ from app.core.config import settings, is_llm_available
 
 logger = logging.getLogger(__name__)
 
+TRANSLATE_SYSTEM = "You are a professional translator. Translate the following text to English. Return ONLY the English translation, nothing else — no explanations, no notes."
+
 ANALYSIS_SYSTEM = """You are an AI assistant for an international trade company. Extract structured information from customer inquiry messages.
 
 Return ONLY valid JSON in this exact format:
@@ -221,22 +223,52 @@ async def _analyze_mock(raw_message: str) -> dict[str, Any]:
 
 
 # ═══════════════════════════════════════════════════════════════════
+# Translation
+# ═══════════════════════════════════════════════════════════════════
+
+def _is_mostly_english(text: str) -> bool:
+    ascii_count = sum(1 for c in text if c.isascii() and c.isalpha())
+    total_alpha = sum(1 for c in text if c.isalpha())
+    if total_alpha == 0:
+        return True
+    return (ascii_count / total_alpha) > 0.7
+
+
+async def _translate_to_english(text: str) -> str:
+    return await _call_llm(TRANSLATE_SYSTEM, text, json_mode=False)
+
+
+# ═══════════════════════════════════════════════════════════════════
 # Public API
 # ═══════════════════════════════════════════════════════════════════
 
 async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
+    message = raw_message
+    translated = False
+
+    if not _is_mostly_english(message) and is_llm_available():
+        try:
+            logger.info("Non-English detected, translating...")
+            message = await _translate_to_english(message)
+            translated = True
+            logger.info("Translated inquiry: %s", message[:200])
+        except Exception as e:
+            logger.warning("Translation failed, using original: %s", e)
+
     if is_llm_available():
         try:
             logger.info("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
-            result = await _analyze_with_ai(raw_message)
+            result = await _analyze_with_ai(message)
             result["ai_used"] = True
+            result["translated"] = translated
             return result
         except Exception as e:
             logger.warning("AI analyze failed, falling back to mock: %s", e)
     else:
         logger.info("LLM not configured, using mock analysis")
-    result = await _analyze_mock(raw_message)
+    result = await _analyze_mock(message)
     result["ai_used"] = False
+    result["translated"] = translated
     return result
 
 

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Upload, Trash2, Search, LogOut, Package, Mail, FileText, Copy } from "lucide-react"
 import { isAuthenticated, isSeller, getUser, logout } from "@/lib/auth"
 import { uploadProducts, getSellerReceivedInquiries, generateSellerReply } from "@/lib/api-client"
+import LanguageSwitcher from "@/components/LanguageSwitcher"
 import type { SellerInquiryItem } from "@/lib/api-client"
 import type { Product } from "@/types"
 
@@ -102,6 +103,7 @@ export default function SellerPage() {
             <span className="font-semibold text-gray-900">Seller Portal</span>
           </div>
           <div className="flex items-center gap-3">
+            <LanguageSwitcher />
             <span className="text-sm text-gray-500">{user?.email}</span>
             <button onClick={handleLogout} className="text-gray-400 hover:text-red-500">
               <LogOut className="w-4 h-4" />

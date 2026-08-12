@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation"
 import { Package, Mail, FileText, Users, LogOut, BarChart3 } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
 import { adminGetDashboard, adminListSellers, adminListProducts, adminListInquiries } from "@/lib/api-client"
+import LanguageSwitcher from "@/components/LanguageSwitcher"
 import type { Product, Inquiry } from "@/types"
 
 interface SellerInfo {
@@ -62,6 +63,7 @@ export default function AdminPage() {
             <span className="font-semibold">Admin Panel</span>
           </div>
           <div className="flex items-center gap-4">
+            <LanguageSwitcher />
             <span className="text-sm text-slate-300">{user?.email}</span>
             <button onClick={handleLogout} className="text-slate-400 hover:text-white">
               <LogOut className="w-4 h-4" />

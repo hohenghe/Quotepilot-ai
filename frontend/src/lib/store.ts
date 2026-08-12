@@ -132,7 +132,7 @@ export function addProducts(items: Omit<Product, "id" | "created_at" | "is_activ
 
 export async function deleteProduct(id: number) {
   if (isSupabaseMode()) {
-    await       getSupabase().from("products").update({ is_active: false }).eq("id", id)
+    await       getSupabase().from("products").update({ is_active: false } as any).eq("id", id)
   }
   const products = getAllProducts().filter(p => p.id !== id)
   save(PRODUCTS_KEY, products)
@@ -142,7 +142,7 @@ export async function deleteAllProducts(): Promise<void> {
   if (isSupabaseMode()) {
     const products = getAllProducts()
     for (const p of products) {
-      await       getSupabase().from("products").update({ is_active: false }).eq("id", p.id)
+      await       getSupabase().from("products").update({ is_active: false } as any).eq("id", p.id)
     }
   }
   save(PRODUCTS_KEY, [])

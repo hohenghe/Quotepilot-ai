@@ -356,3 +356,7 @@ export async function getSellerProducts(): Promise<{ total: number; items: Produ
   const first = await request<{ total: number; items: Product[] }>("/api/products?page=1&page_size=2000")
   return first
 }
+
+export async function deleteSellerProduct(productId: number): Promise<void> {
+  await request(`/api/products/${productId}`, { method: "DELETE" })
+}

@@ -1,6 +1,6 @@
 import logging
 from typing import Any
-from app.services.embedding import generate_embedding
+from app.services.embedding import generate_embedding, get_cached_embedding, set_cached_embedding, compute_embeddings_batch
 from app.core.config import is_embedding_available
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [RAG] %(message)s")
@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 _rag_logged = False
 
 
-async def cosine_similarity(a: list[float], b: list[float]) -> float:
+def cosine_similarity(a: list[float], b: list[float]) -> float:
     dot = sum(x * y for x, y in zip(a, b))
     norm_a = sum(x * x for x in a) ** 0.5
     norm_b = sum(x * x for x in b) ** 0.5
@@ -45,6 +45,18 @@ def _keyword_score(query: str, product: dict[str, Any]) -> float:
     return min(score, 1.0)
 
 
+def _product_text(p: dict[str, Any]) -> str:
+    return f"{p.get('name', '')} {p.get('category', '')} {p.get('description', '')} {p.get('technical_specs', '')}"
+
+
+async def precompute_product_embeddings(products: list[dict[str, Any]]) -> int:
+    """Pre-compute embeddings for all uncached products. Called after upload or on search."""
+    if not is_embedding_available():
+        return 0
+    texts = [(p["id"], _product_text(p)) for p in products if get_cached_embedding(p["id"], _product_text(p)) is None]
+    return await compute_embeddings_batch(texts)
+
+
 async def search_products_hybrid(
     query: str,
     products: list[dict[str, Any]],
@@ -63,7 +75,10 @@ async def search_products_hybrid(
         if not _rag_logged:
             logger.warning("SEARCH MODE: keyword-only on %d products", len(products))
             _rag_logged = True
-        vector_weight = 0.0
+
+    # Pre-compute missing embeddings in batch BEFORE searching
+    if use_vector:
+        await precompute_product_embeddings(products)
 
     query_vec = None
     if use_vector:
@@ -78,9 +93,10 @@ async def search_products_hybrid(
     for p in products:
         vs = 0.5
         if use_vector and query_vec:
-            product_text = f"{p.get('name', '')} {p.get('category', '')} {p.get('description', '')} {p.get('technical_specs', '')}"
-            product_vec = await generate_embedding(product_text)
-            vs = (await cosine_similarity(query_vec, product_vec) + 1) / 2
+            text = _product_text(p)
+            cached = get_cached_embedding(p["id"], text)
+            if cached:
+                vs = (cosine_similarity(query_vec, cached) + 1) / 2
 
         ks = _keyword_score(query, p)
         combined = vector_weight * vs + (1 - vector_weight) * ks

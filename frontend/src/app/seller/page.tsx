@@ -4,7 +4,7 @@ import { useState, useEffect, useMemo, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { Upload, Trash2, Search, LogOut, Package, Mail, FileText, Copy, CheckSquare, Square } from "lucide-react"
 import { isAuthenticated, isSeller, getUser, logout } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteSellerProduct } from "@/lib/api-client"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useT } from "@/i18n/I18nProvider"
 import type { SellerInquiryItem } from "@/lib/api-client"
@@ -109,21 +109,14 @@ export default function SellerPage() {
     if (selectedIds.size === 0) return
     setDeleting(true)
     try {
-      const getApiBaseUrl = () => {
-        let url = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
-        if (!url.startsWith("http")) url = "https://" + url
-        return url
-      }
-      const token = localStorage.getItem("quotepilot_token")
       for (const id of selectedIds) {
-        await fetch(`${getApiBaseUrl()}/api/products/${id}`, {
-          method: "DELETE",
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        })
+        await deleteSellerProduct(id)
       }
       setSelectedIds(new Set())
       await loadProducts()
-    } catch { } finally {
+    } catch (err: any) {
+      setMsg({ type: "error", text: err.message || "Delete failed" })
+    } finally {
       setDeleting(false)
     }
   }

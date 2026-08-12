@@ -21,7 +21,7 @@ class Product(Base):
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     name = Column(String(300), nullable=False)
-    sku = Column(String(100), unique=True, nullable=True)
+    sku = Column(String(100), nullable=True, index=True)
     category = Column(String(100), nullable=False, default="other")
     description = Column(Text, nullable=True)
     technical_specs = Column(Text, nullable=True)

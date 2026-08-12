@@ -169,3 +169,10 @@ async def init_db():
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
         await _sync_columns(conn)
+        # Drop unique constraint on sku if it exists (allows duplicate SKUs across sellers)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key"
+            ))
+        except Exception:
+            pass

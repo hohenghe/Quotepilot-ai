@@ -14,7 +14,7 @@ class Inquiry(Base):
     raw_message = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-    analyses = relationship("InquiryAnalysis", back_populates="inquiry", cascade="all, delete-orphan")
+    analyses = relationship("InquiryAnalysis", back_populates="inquiry", cascade="all, delete-orphan", lazy="selectin")
 
 
 class InquiryAnalysis(Base):

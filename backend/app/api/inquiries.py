@@ -74,6 +74,7 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
     await db.commit()
     await db.refresh(inquiry)
     await db.refresh(analysis)
+    inquiry.analyses = [analysis]
 
     # Product matching via RAG
     result = await db.execute(select(Product).where(Product.is_active == True))
@@ -93,6 +94,7 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
                 "unit_price": p.unit_price,
                 "price_range_low": p.price_range_low,
                 "price_range_high": p.price_range_high,
+                "pricing": p.pricing,
                 "lead_time_days": p.lead_time_days,
             }
             for p in all_products
@@ -123,6 +125,7 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
                     unit_price=p.get("unit_price"),
                     price_range_low=p.get("price_range_low"),
                     price_range_high=p.get("price_range_high"),
+                    pricing=p.get("pricing"),
                     lead_time_days=p.get("lead_time_days"),
                     certifications=p.get("certifications"),
                     technical_specs=p.get("technical_specs"),

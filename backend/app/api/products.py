@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
-from app.core.auth import require_seller, require_admin, require_auth
+from app.core.auth import require_seller, require_admin, get_current_user
 from app.models.product import Product
 from app.models.document import Document
 from app.models.user import User
@@ -28,7 +28,7 @@ async def list_products(
     category: str | None = None,
     search: str | None = None,
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(require_auth),
+    user: User | None = Depends(get_current_user),
 ):
     query = select(Product).where(Product.is_active == True)
     count_query = select(func.count(Product.id)).where(Product.is_active == True)
@@ -169,7 +169,7 @@ async def delete_product(
 @router.get("/stats/summary")
 async def product_stats(
     db: AsyncSession = Depends(get_db),
-    user: User | None = Depends(require_auth),
+    user: User | None = Depends(get_current_user),
 ):
     base = select(func.count(Product.id)).where(Product.is_active == True)
     if user:

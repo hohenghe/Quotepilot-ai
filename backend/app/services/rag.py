@@ -1,6 +1,12 @@
+import logging
 from typing import Any
 from app.services.embedding import generate_embedding
 from app.core.config import is_embedding_available
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [RAG] %(message)s")
+logger = logging.getLogger(__name__)
+
+_rag_logged = False
 
 
 async def cosine_similarity(a: list[float], b: list[float]) -> float:
@@ -18,7 +24,6 @@ def _keyword_score(query: str, product: dict[str, Any]) -> float:
         kw for kw in query_lower.replace(",", " ").replace(".", " ").replace("/", " ").split()
         if len(kw) >= 2
     ))
-
     name = (product.get("name") or "").lower()
     category = (product.get("category") or "").lower().replace("_", " ")
     desc = (product.get("description") or "").lower()
@@ -46,10 +51,18 @@ async def search_products_hybrid(
     top_k: int = 5,
     vector_weight: float = 0.0,
 ) -> list[tuple[dict[str, Any], float]]:
+    global _rag_logged
     use_vector = is_embedding_available()
+
     if use_vector:
+        if not _rag_logged:
+            logger.warning("SEARCH MODE: vector(60%%) + keyword(40%%) on %d products", len(products))
+            _rag_logged = True
         vector_weight = 0.6
     else:
+        if not _rag_logged:
+            logger.warning("SEARCH MODE: keyword-only on %d products", len(products))
+            _rag_logged = True
         vector_weight = 0.0
 
     query_vec = None
@@ -57,6 +70,7 @@ async def search_products_hybrid(
         try:
             query_vec = await generate_embedding(query)
         except Exception:
+            logger.warning("Vector search failed, falling back to keyword-only")
             use_vector = False
             vector_weight = 0.0
 
@@ -73,4 +87,6 @@ async def search_products_hybrid(
         results.append((p, combined))
 
     results.sort(key=lambda x: x[1], reverse=True)
-    return [(p, s) for p, s in results[:top_k] if s > 0]
+    top = [(p, s) for p, s in results[:top_k] if s > 0]
+    logger.warning("RESULTS: %d matched (scores: %s)", len(top), ", ".join(f"{s:.2f}" for _, s in top[:5]))
+    return top

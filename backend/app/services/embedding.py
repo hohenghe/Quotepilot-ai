@@ -4,7 +4,10 @@ import logging
 import httpx
 from app.core.config import settings, is_embedding_available
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [EMBED] %(message)s")
 logger = logging.getLogger(__name__)
+
+_embed_logged = False
 
 
 def _deterministic_seed(text: str) -> int:
@@ -43,17 +46,23 @@ _cache: dict[str, list[float]] = {}
 
 
 async def generate_embedding(text: str) -> list[float]:
+    global _embed_logged
     cache_key = text[:500]
     if cache_key in _cache:
         return _cache[cache_key]
 
     if is_embedding_available():
         try:
+            if not _embed_logged:
+                logger.warning("EMBEDDING API: %s model=%s", settings.EMBEDDING_BASE_URL, settings.EMBEDDING_MODEL)
+                _embed_logged = True
             vec = await _api_embedding(text)
             _cache[cache_key] = vec
             return vec
         except Exception as e:
-            logger.warning("Embedding API failed, using mock: %s", e)
+            logger.warning("EMBEDDING API failed, using mock: %s", e)
+    else:
+        logger.warning("EMBEDDING: not configured, using mock vectors")
 
     vec = _mock_embedding(text)
     _cache[cache_key] = vec

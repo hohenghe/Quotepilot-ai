@@ -227,11 +227,12 @@ async def _analyze_mock(raw_message: str) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════
 
 def _is_mostly_english(text: str) -> bool:
-    ascii_count = sum(1 for c in text if c.isascii() and c.isalpha())
-    total_alpha = sum(1 for c in text if c.isalpha())
-    if total_alpha == 0:
+    total = len(text.strip())
+    if total == 0:
         return True
-    return (ascii_count / total_alpha) > 0.7
+    ascii_count = sum(1 for c in text if ord(c) < 128 and c.isalpha())
+    non_ascii = sum(1 for c in text if ord(c) > 127)
+    return non_ascii == 0 or (ascii_count / max(total, 1)) > 0.5
 
 
 async def _translate_to_english(text: str) -> str:

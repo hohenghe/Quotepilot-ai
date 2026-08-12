@@ -11,8 +11,7 @@ function getApiBaseUrl(): string {
 }
 
 export function isApiAvailable(): boolean {
-  const url = process.env.NEXT_PUBLIC_API_BASE_URL
-  return typeof url === "string" && url.length > 0
+  return getApiBaseUrl().length > 0
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {

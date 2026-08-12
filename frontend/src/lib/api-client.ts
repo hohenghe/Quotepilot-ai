@@ -353,5 +353,5 @@ export async function generateSellerReply(inquiryId: number): Promise<{ subject:
 }
 
 export async function getSellerProducts(): Promise<{ total: number; items: Product[] }> {
-  return await request("/api/products?page=1&page_size=1000")
+  return await request("/api/products?page=1&page_size=100")
 }

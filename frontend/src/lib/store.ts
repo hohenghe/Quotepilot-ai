@@ -240,6 +240,7 @@ export interface FullAnalysisResult {
   inquiry: Inquiry
   analysis: InquiryAnalysis
   matchedProducts: MatchedProduct[]
+  aiUsed?: boolean
 }
 
 async function doLocalAnalyze(rawMessage: string, customerName?: string): Promise<FullAnalysisResult> {
@@ -310,7 +311,7 @@ async function doLocalAnalyze(rawMessage: string, customerName?: string): Promis
     }
   })
 
-  return { inquiry, analysis, matchedProducts }
+  return { inquiry, analysis, matchedProducts, aiUsed: false }
 }
 
 export async function analyzeAndMatch(rawMessage: string, customerName?: string): Promise<FullAnalysisResult> {

@@ -138,4 +138,5 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
         inquiry=InquiryResponse.model_validate(inquiry),
         analysis=InquiryAnalysisResponse.model_validate(analysis),
         matched_products=matched,
+        ai_used=analysis_data.get("ai_used", False),
     )

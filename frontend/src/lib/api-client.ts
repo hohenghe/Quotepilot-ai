@@ -81,6 +81,7 @@ interface ApiInquiryAnalysisResult {
   inquiry: ApiInquiry
   analysis: ApiInquiryAnalysis
   matched_products: ApiMatchedProduct[]
+  ai_used: boolean
 }
 
 interface ApiQuote {
@@ -171,6 +172,7 @@ export interface FullAnalysisResult {
   inquiry: Inquiry
   analysis: InquiryAnalysis
   matchedProducts: MatchedProduct[]
+  aiUsed: boolean
 }
 
 export async function analyzeAndMatch(
@@ -191,6 +193,7 @@ export async function analyzeAndMatch(
     inquiry: adaptInquiry(data.inquiry),
     analysis: adaptAnalysis(data.analysis),
     matchedProducts: data.matched_products.map(adaptMatchedProduct),
+    aiUsed: data.ai_used ?? false,
   }
 }
 

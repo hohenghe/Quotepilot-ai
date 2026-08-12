@@ -228,12 +228,16 @@ async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
     if is_llm_available():
         try:
             logger.info("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
-            return await _analyze_with_ai(raw_message)
+            result = await _analyze_with_ai(raw_message)
+            result["ai_used"] = True
+            return result
         except Exception as e:
             logger.warning("AI analyze failed, falling back to mock: %s", e)
     else:
         logger.info("LLM not configured, using mock analysis")
-    return await _analyze_mock(raw_message)
+    result = await _analyze_mock(raw_message)
+    result["ai_used"] = False
+    return result
 
 
 async def generate_quote_email(

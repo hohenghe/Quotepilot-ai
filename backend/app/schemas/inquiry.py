@@ -60,3 +60,4 @@ class InquiryAnalysisResult(BaseModel):
     inquiry: InquiryResponse
     analysis: InquiryAnalysisResponse
     matched_products: list[MatchedProduct] = []
+    ai_used: bool = False

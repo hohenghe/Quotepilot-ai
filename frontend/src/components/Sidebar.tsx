@@ -25,8 +25,8 @@ export default function Sidebar({
 
   const navItems = [
     { href: "/", label: t.sidebar.dashboard, icon: LayoutDashboard },
-    { href: "/products", label: t.sidebar.products, icon: Package },
-    { href: "/inquiry", label: t.sidebar.inquiryAssistant, icon: MessageSquareText },
+    { href: "/seller", label: t.sidebar.products, icon: Package },
+    { href: "/buyer", label: t.sidebar.inquiryAssistant, icon: MessageSquareText },
     { href: "/quote", label: t.sidebar.quoteGenerator, icon: FileText },
   ]
 

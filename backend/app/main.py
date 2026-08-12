@@ -51,3 +51,15 @@ async def root():
 @app.get("/api/health")
 async def health():
     return {"status": "healthy"}
+
+
+@app.get("/api/debug/llm-status")
+async def llm_status():
+    from app.core.config import is_llm_available, settings
+    return {
+        "llm_available": is_llm_available(),
+        "base_url": settings.OPENAI_BASE_URL,
+        "model": settings.LLM_MODEL,
+        "key_configured": bool(settings.OPENAI_API_KEY),
+        "key_preview": (settings.OPENAI_API_KEY[:8] + "..." + settings.OPENAI_API_KEY[-4:]) if len(settings.OPENAI_API_KEY) > 12 else "NOT SET",
+    }

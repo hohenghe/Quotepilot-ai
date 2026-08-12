@@ -166,6 +166,11 @@ export async function uploadFile(file: File): Promise<Product[]> {
   }
 
   addProducts(parsed)
+
+  if (apiClient.isApiAvailable()) {
+    apiClient.uploadProducts(file).catch(e => console.warn("Backend upload failed", e))
+  }
+
   return getAllProducts()
 }
 

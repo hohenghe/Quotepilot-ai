@@ -215,6 +215,15 @@ export async function getDashboardStats(): Promise<DashboardStats> {
   return await request<ApiDashboardStats>("/api/dashboard")
 }
 
+export async function uploadProducts(file: File): Promise<void> {
+  const formData = new FormData()
+  formData.append("file", file)
+  await fetch(`${getApiBaseUrl()}/api/products/upload`, {
+    method: "POST",
+    body: formData,
+  })
+}
+
 export async function listInquiries(): Promise<Inquiry[]> {
   const data = await request<{ total: number; items: ApiInquiry[] }>("/api/inquiries")
   return data.items.map(adaptInquiry)

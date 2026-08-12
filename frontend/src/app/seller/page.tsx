@@ -108,14 +108,17 @@ export default function SellerPage() {
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return
     setDeleting(true)
+    const idsToDelete = new Set(selectedIds)
+    // Immediately remove from UI
+    setProducts(prev => prev.filter(p => !idsToDelete.has(p.id)))
+    setSelectedIds(new Set())
     try {
-      for (const id of selectedIds) {
+      for (const id of idsToDelete) {
         await deleteSellerProduct(id)
       }
-      setSelectedIds(new Set())
-      await loadProducts()
     } catch (err: any) {
       setMsg({ type: "error", text: err.message || "Delete failed" })
+      await loadProducts()
     } finally {
       setDeleting(false)
     }

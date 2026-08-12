@@ -1,43 +1,4 @@
-/**
- * RAG (Retrieval-Augmented Generation) — hybrid product search.
- * Combines vector similarity (real API or mock) with keyword matching.
- */
-
-import { generateEmbedding } from "./embedding"
 import type { Product } from "@/types"
-
-function cosineSimilarity(a: number[], b: number[]): number {
-  if (a.length !== b.length) return 0
-  let dot = 0
-  let normA = 0
-  let normB = 0
-  for (let i = 0; i < a.length; i++) {
-    dot += a[i] * b[i]
-    normA += a[i] * a[i]
-    normB += b[i] * b[i]
-  }
-  if (normA === 0 || normB === 0) return 0
-  return dot / (Math.sqrt(normA) * Math.sqrt(normB))
-}
-
-function keywordScore(query: string, product: Product): number {
-  const ql = query.toLowerCase()
-  const keywords = ql.replace(/[,.]/g, " ").split(/\s+/).filter(k => k.length >= 2)
-  let score = 0
-
-  const name = (product.name || "").toLowerCase()
-  const cat = (product.category || "").toLowerCase()
-  const desc = (product.description || "").toLowerCase()
-  const specs = (product.technical_specs || "").toLowerCase()
-
-  for (const kw of keywords) {
-    if (name.includes(kw)) score += 0.6
-    if (cat.includes(kw)) score += 0.15
-    if (desc.includes(kw)) score += 0.05
-    if (specs.includes(kw)) score += 0.1
-  }
-  return Math.min(score, 1)
-}
 
 export interface SearchResult {
   product: Product
@@ -48,25 +9,31 @@ export async function searchProducts(
   query: string,
   products: Product[],
   topK: number = 5,
-  vectorWeight: number = 0.5,
+  _vectorWeight: number = 0.5,
 ): Promise<SearchResult[]> {
-  if (products.length === 0) return []
+  const queryLower = query.toLowerCase()
+  const keywords = [...new Set(
+    queryLower.replace(/[,.\/]/g, " ").split(/\s+/).filter(kw => kw.length >= 2)
+  )]
 
-  const queryVec = await generateEmbedding(query)
-  const results: SearchResult[] = []
+  const scored = products.map(p => {
+    const name = (p.name || "").toLowerCase()
+    const category = (p.category || "").toLowerCase().replace(/_/g, " ")
+    const desc = (p.description || "").toLowerCase()
+    const specs = (p.technical_specs || "").toLowerCase()
+    const certs = (p.certifications || "").toLowerCase()
 
-  for (const p of products) {
-    const text = [
-      p.name, p.category, p.description,
-      p.technical_specs, p.certifications,
-    ].filter(Boolean).join(" | ")
-    const pVec = await generateEmbedding(text)
-    const vs = (cosineSimilarity(queryVec, pVec) + 1) / 2
-    const ks = keywordScore(query, p)
-    const combined = vectorWeight * vs + (1 - vectorWeight) * ks
-    results.push({ product: p, score: combined })
-  }
+    let score = 0
+    for (const kw of keywords) {
+      if (name.includes(kw)) score += 0.5
+      if (category.includes(kw)) score += 0.25
+      if (desc.includes(kw)) score += 0.15
+      if (specs.includes(kw)) score += 0.1
+      if (certs.includes(kw)) score += 0.05
+    }
+    return { product: p, score: Math.min(score, 1) }
+  })
 
-  results.sort((a, b) => b.score - a.score)
-  return results.slice(0, topK)
+  scored.sort((a, b) => b.score - a.score)
+  return scored.slice(0, topK).filter(r => r.score > 0)
 }

@@ -5,5 +5,5 @@ __pycache__/
 *.pyc
 .env
 .env.local
-backend/.env
+*.tsbuildinfo
 uploads/

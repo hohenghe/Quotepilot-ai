@@ -137,7 +137,7 @@ export default function SellerPage() {
       setProfilePhone(user.phone || "")
       setProfileCountry(user.country || "CN")
     }
-  }, [tab, user])
+  }, [tab, user?.user_id])
 
   const handleSaveProfile = async () => {
     setSavingProfile(true)

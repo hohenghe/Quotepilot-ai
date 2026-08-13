@@ -185,7 +185,7 @@ export default function BuyerPage() {
     if (user && user.role !== "admin") {
       loadSavedProducts()
     }
-  }, [user, loadSavedProducts])
+  }, [user?.user_id, user?.role, loadSavedProducts])
 
   if (!authReady) {
     return <PageLoader />

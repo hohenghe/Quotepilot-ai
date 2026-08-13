@@ -53,6 +53,8 @@ class ProductResponse(BaseModel):
     image_url: Optional[str] = None
     is_active: bool
     created_at: Optional[datetime] = None
+    seller_name: Optional[str] = None
+    seller_email: Optional[str] = None
 
     class Config:
         from_attributes = True

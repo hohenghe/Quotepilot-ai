@@ -244,7 +244,11 @@ async def admin_list_all_products(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    query = select(Product).where(Product.is_active == True)
+    query = (
+        select(Product, User.name, User.email)
+        .outerjoin(User, Product.seller_id == User.id)
+        .where(Product.is_active == True)
+    )
     count_query = select(func.count(Product.id)).where(Product.is_active == True)
 
     if seller_id:
@@ -260,9 +264,16 @@ async def admin_list_all_products(
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size).order_by(Product.created_at.desc())
     result = await db.execute(query)
-    items = result.scalars().all()
+    rows = result.all()
+
+    items = []
+    for p, seller_name, seller_email in rows:
+        resp = ProductResponse.model_validate(p)
+        resp.seller_name = seller_name
+        resp.seller_email = seller_email
+        items.append(resp)
 
     return ProductListResponse(
         total=total,
-        items=[ProductResponse.model_validate(p) for p in items],
+        items=items,
     )

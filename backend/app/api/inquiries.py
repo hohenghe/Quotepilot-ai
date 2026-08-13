@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, delete
+from sqlalchemy import select, func, delete, update
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.auth import require_admin, require_auth, require_seller, require_buyer
@@ -9,6 +9,7 @@ from app.models.product import Product
 from app.models.user import User
 from app.models.quote import Quote
 from app.models.seller_inquiry import SellerInquiry
+from app.models.saved_product import SavedProduct
 from app.schemas.inquiry import (
     InquiryCreate,
     InquiryResponse,
@@ -129,6 +130,23 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
         logger.warning("Search failed, returning empty: %s", str(e)[:200])
         match_results = []
 
+    # Increment view counts + collect favorite counts for matched products
+    matched_ids = [mp["product_id"] for mp in match_results]
+    fav_counts: dict[int, int] = {}
+    if matched_ids:
+        fav_rows = await db.execute(
+            select(SavedProduct.product_id, func.count(SavedProduct.id))
+            .where(SavedProduct.product_id.in_(matched_ids))
+            .group_by(SavedProduct.product_id)
+        )
+        fav_counts = {pid: cnt for pid, cnt in fav_rows.all()}
+        await db.execute(
+            update(Product)
+            .where(Product.id.in_(matched_ids))
+            .values(view_count=Product.view_count + 1)
+        )
+        await db.commit()
+
     matched = []
     for mp in match_results:
         reasons = []
@@ -157,6 +175,7 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
                 lead_time_days=mp.get("lead_time_days"),
                 certifications=mp.get("certifications"),
                 technical_specs=mp.get("technical_specs"),
+                favorite_count=fav_counts.get(mp["product_id"], 0),
             )
         )
 

@@ -86,6 +86,8 @@ const zhCN = {
     previous: "上一页",
     next: "下一页",
     deletedCount: (n: number) => `已删除 ${n} 个商品`,
+    favorites: "收藏",
+    views: "浏览",
   },
   inquiry: {
     title: "询盘分析",

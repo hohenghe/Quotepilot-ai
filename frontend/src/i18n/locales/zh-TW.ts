@@ -86,6 +86,8 @@ const zhTW = {
     previous: "上一頁",
     next: "下一頁",
     deletedCount: (n: number) => `已刪除 ${n} 個商品`,
+    favorites: "收藏",
+    views: "瀏覽",
   },
   inquiry: {
     title: "詢盤分析",

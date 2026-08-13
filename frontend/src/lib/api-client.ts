@@ -88,6 +88,7 @@ interface ApiMatchedProduct {
   lead_time_days: number | null
   certifications: string | null
   technical_specs: string | null
+  favorite_count: number
 }
 
 interface ApiInquiryAnalysisResult {
@@ -161,6 +162,7 @@ function adaptMatchedProduct(raw: ApiMatchedProduct): MatchedProduct {
     lead_time_days: raw.lead_time_days,
     certifications: raw.certifications,
     technical_specs: raw.technical_specs,
+    favorite_count: raw.favorite_count ?? 0,
   }
 }
 
@@ -402,6 +404,7 @@ export interface SavedProductItem {
   lead_time_days: number | null
   certifications: string | null
   technical_specs: string | null
+  favorite_count: number
   created_at: string | null
 }
 

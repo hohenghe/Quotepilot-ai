@@ -321,6 +321,10 @@ export default function BuyerPage() {
                         {mp.moq != null && <span>{t.buyer.moqLabel}: {mp.moq}</span>}
                         {mp.lead_time_days != null && <span>{t.buyer.leadTime}: {mp.lead_time_days}d</span>}
                         {mp.certifications && <span>{t.buyer.certs}: {mp.certifications}</span>}
+                        <span className="inline-flex items-center gap-1">
+                          <Heart className="w-3.5 h-3.5" />
+                          {mp.favorite_count ?? 0}
+                        </span>
                       </div>
                       {mp.pricing && <p className="mt-2 text-xs text-slate-400 truncate">{mp.pricing}</p>}
                       <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">

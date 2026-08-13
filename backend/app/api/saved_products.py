@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select, delete
+from sqlalchemy import select, delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.core.database import get_db
@@ -44,8 +44,13 @@ async def list_saved(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_buyer),
 ):
+    fav_subq = (
+        select(func.count(SavedProduct.id))
+        .where(SavedProduct.product_id == Product.id)
+        .scalar_subquery()
+    )
     stmt = (
-        select(SavedProduct, Product)
+        select(SavedProduct, Product, fav_subq.label("favorite_count"))
         .join(Product, SavedProduct.product_id == Product.id)
         .where(SavedProduct.user_id == user.id, Product.is_active == True)
         .order_by(SavedProduct.created_at.desc())
@@ -65,9 +70,10 @@ async def list_saved(
             "lead_time_days": p.lead_time_days,
             "certifications": p.certifications,
             "technical_specs": p.technical_specs,
+            "favorite_count": fav or 0,
             "created_at": sp.created_at.isoformat() if sp.created_at else None,
         }
-        for sp, p in rows
+        for sp, p, fav in rows
     ]
     return {"items": items}
 

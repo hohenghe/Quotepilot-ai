@@ -37,6 +37,7 @@ class Product(Base):
     lead_time_days = Column(Integer, nullable=True)
     image_url = Column(String(500), nullable=True)
     is_active = Column(Boolean, default=True)
+    view_count = Column(Integer, default=0, nullable=False)
 
     embedding = Column(Vector(settings.EMBEDDING_DIM), nullable=True)
     embedding_hash = Column(String(64), nullable=True, index=True)

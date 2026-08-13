@@ -482,6 +482,8 @@ export default function AdminPage() {
                       <th className="th">{t.admin.tableSeller}</th>
                       <th className="th">{t.admin.tableCategory}</th>
                       <th className="th">{t.admin.tableMoq}</th>
+                      <th className="th">{t.products.favorites}</th>
+                      <th className="th">{t.products.views}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -507,6 +509,8 @@ export default function AdminPage() {
                           <span className="badge badge-neutral">{p.category?.replace(/_/g, " ")}</span>
                         </td>
                         <td className="td text-slate-500">{p.moq ?? "—"}</td>
+                        <td className="td text-slate-500">{p.favorite_count ?? 0}</td>
+                        <td className="td text-slate-500">{p.view_count ?? 0}</td>
                       </tr>
                     ))}
                   </tbody>

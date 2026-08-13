@@ -14,6 +14,8 @@ export interface Product {
   lead_time_days: number | null
   image_url: string | null
   is_active: boolean
+  view_count: number
+  favorite_count: number
   created_at: string | null
   seller_name: string | null
   seller_email: string | null
@@ -72,6 +74,7 @@ export interface MatchedProduct {
   lead_time_days: number | null
   certifications: string | null
   technical_specs: string | null
+  favorite_count: number
 }
 
 export interface InquiryAnalysisResult {

@@ -53,6 +53,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("lead_time_days", "INTEGER", None),
             ("image_url", "TEXT", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
+            ("view_count", "INTEGER DEFAULT 0", None),
             ("embedding", "vector(1024)", None),
             ("embedding_hash", "TEXT", None),
             ("embedding_model", "TEXT", None),

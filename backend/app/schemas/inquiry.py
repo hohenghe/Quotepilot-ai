@@ -54,6 +54,7 @@ class MatchedProduct(BaseModel):
     lead_time_days: Optional[int] = None
     certifications: Optional[str] = None
     technical_specs: Optional[str] = None
+    favorite_count: int = 0
 
 
 class InquiryAnalysisResult(BaseModel):

@@ -52,6 +52,8 @@ class ProductResponse(BaseModel):
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
     is_active: bool
+    view_count: int = 0
+    favorite_count: int = 0
     created_at: Optional[datetime] = None
     seller_name: Optional[str] = None
     seller_email: Optional[str] = None

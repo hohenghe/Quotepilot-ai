@@ -87,6 +87,8 @@ const fr = {
     previous: "Précédent",
     next: "Suivant",
     deletedCount: (n: number) => `${n} produits supprimés`,
+    favorites: "Favoris",
+    views: "Vues",
   },
   inquiry: {
     title: "Analyse de Demandes",

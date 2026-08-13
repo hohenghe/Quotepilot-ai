@@ -9,6 +9,7 @@ from app.core.auth import require_seller, require_admin, get_current_user, requi
 from app.models.product import Product
 from app.models.document import Document
 from app.models.user import User
+from app.models.saved_product import SavedProduct
 from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductListResponse, DocumentResponse
 from app.services.file_parser import parse_file
 from app.services.storage import get_storage
@@ -20,6 +21,14 @@ def _scope_by_seller(query, user: User):
     return query.where(Product.seller_id == user.id)
 
 
+def _favorite_count_subquery():
+    return (
+        select(func.count(SavedProduct.id))
+        .where(SavedProduct.product_id == Product.id)
+        .scalar_subquery()
+    )
+
+
 @router.get("", response_model=ProductListResponse)
 async def list_products(
     page: int = Query(1, ge=1),
@@ -29,7 +38,7 @@ async def list_products(
     db: AsyncSession = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
-    query = select(Product).where(Product.is_active == True)
+    query = select(Product, _favorite_count_subquery().label("favorite_count")).where(Product.is_active == True)
     count_query = select(func.count(Product.id)).where(Product.is_active == True)
 
     if user:
@@ -49,21 +58,32 @@ async def list_products(
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size).order_by(Product.created_at.desc())
     result = await db.execute(query)
-    items = result.scalars().all()
+    rows = result.all()
+
+    items = []
+    for p, fav in rows:
+        resp = ProductResponse.model_validate(p)
+        resp.favorite_count = fav or 0
+        items.append(resp)
 
     return ProductListResponse(
         total=total,
-        items=[ProductResponse.model_validate(p) for p in items],
+        items=items,
     )
 
 
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Product).where(Product.id == product_id))
-    product = result.scalar_one_or_none()
-    if not product:
+    result = await db.execute(
+        select(Product, _favorite_count_subquery().label("favorite_count")).where(Product.id == product_id)
+    )
+    row = result.first()
+    if not row:
         raise HTTPException(status_code=404, detail="Product not found")
-    return ProductResponse.model_validate(product)
+    product, fav = row
+    resp = ProductResponse.model_validate(product)
+    resp.favorite_count = fav or 0
+    return resp
 
 
 @router.post("/upload", response_model=DocumentResponse)
@@ -248,7 +268,7 @@ async def admin_list_all_products(
     _: User = Depends(require_admin),
 ):
     query = (
-        select(Product, User.name, User.email)
+        select(Product, User.name, User.email, _favorite_count_subquery().label("favorite_count"))
         .outerjoin(User, Product.seller_id == User.id)
         .where(Product.is_active == True)
     )
@@ -270,10 +290,11 @@ async def admin_list_all_products(
     rows = result.all()
 
     items = []
-    for p, seller_name, seller_email in rows:
+    for p, seller_name, seller_email, fav in rows:
         resp = ProductResponse.model_validate(p)
         resp.seller_name = seller_name
         resp.seller_email = seller_email
+        resp.favorite_count = fav or 0
         items.append(resp)
 
     return ProductListResponse(

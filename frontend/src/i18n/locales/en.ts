@@ -87,6 +87,8 @@ const en = {
     previous: "Previous",
     next: "Next",
     deletedCount: (n: number) => `${n} products deleted`,
+    favorites: "Favorites",
+    views: "Views",
   },
   inquiry: {
     title: "Inquiry Assistant",

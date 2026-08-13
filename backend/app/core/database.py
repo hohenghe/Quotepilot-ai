@@ -230,6 +230,14 @@ async def init_db():
         except Exception:
             pass
 
+        # seller_inquiries.inquiry_id: make nullable (send-inquiry flow does not link an Inquiry record)
+        try:
+            await conn.execute(text(
+                "ALTER TABLE seller_inquiries ALTER COLUMN inquiry_id DROP NOT NULL"
+            ))
+        except Exception:
+            pass
+
 
 async def _migrate_embedding_dimension(conn):
     """Ensure products.embedding column matches settings.EMBEDDING_DIM.

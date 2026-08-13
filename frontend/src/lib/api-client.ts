@@ -30,10 +30,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers["Authorization"] = `Bearer ${token}`
   }
 
-  const res = await fetch(`${getApiBaseUrl()}${path}`, {
-    ...options,
-    headers,
-  })
+  let res: Response
+  try {
+    res = await fetch(`${getApiBaseUrl()}${path}`, {
+      ...options,
+      headers,
+    })
+  } catch {
+    throw new Error(`Network error: could not reach ${getApiBaseUrl()}. Please check your connection.`)
+  }
 
   if (!res.ok) {
     const text = await res.text()

@@ -7,7 +7,7 @@ class SellerInquiry(Base):
     __tablename__ = "seller_inquiries"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    inquiry_id = Column(Integer, ForeignKey("inquiries.id", ondelete="CASCADE"), nullable=False)
+    inquiry_id = Column(Integer, ForeignKey("inquiries.id", ondelete="CASCADE"), nullable=True)
     buyer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     seller_id = Column(Integer, ForeignKey("users.id"), nullable=False)
     product_id = Column(Integer, ForeignKey("products.id"), nullable=True)

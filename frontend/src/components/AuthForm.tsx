@@ -50,8 +50,8 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
   const displayError = localError || error
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50 flex items-center justify-center">
-      <div className="bg-white rounded-2xl shadow-lg p-8 w-full max-w-md mx-4">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center py-10">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -155,9 +155,10 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
               />
               <button
                 type="button"
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 onClick={() => setShowPassword(!showPassword)}
                 tabIndex={-1}
+                aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
               >
                 {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </button>

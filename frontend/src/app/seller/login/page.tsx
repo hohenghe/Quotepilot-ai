@@ -3,7 +3,7 @@
 import { useState } from "react"
 import { useRouter } from "next/navigation"
 import { login, register } from "@/lib/api-client"
-import { saveAuth } from "@/lib/auth"
+import { saveAuth, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
 import type { AuthFormData } from "@/components/AuthForm"
 import { useT } from "@/i18n/I18nProvider"
@@ -20,8 +20,13 @@ export default function SellerLoginPage() {
     setError(null)
     try {
       const res = mode === "register"
-        ? await register(data.email, data.password, data.name, data.country, data.phone)
+        ? await register(data.email, data.password, data.name, data.country, data.phone, "seller")
         : await login(data.email, data.password)
+      if (res.role !== "seller") {
+        logout()
+        setError(t.common.accountMismatch)
+        return
+      }
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
         country: res.country || data.country, phone: res.phone || data.phone,

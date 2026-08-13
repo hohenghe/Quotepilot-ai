@@ -1,35 +1,62 @@
 "use client"
 
-import { useState } from "react"
-import { Sparkles, TrendingUp, LogOut, Send } from "lucide-react"
-import { analyzeAndMatch, login, register, sendInquiryToSeller } from "@/lib/api-client"
+import { useState, useRef, useEffect, useCallback } from "react"
+import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy } from "lucide-react"
+import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
-import LanguageSwitcher from "@/components/LanguageSwitcher"
+import DashboardShell from "@/components/DashboardShell"
+import EmptyState from "@/components/EmptyState"
+import PageLoader from "@/components/PageLoader"
+import StatusBadge from "@/components/StatusBadge"
+import { TableSkeleton } from "@/components/LoadingSkeleton"
+import { useToast } from "@/components/Toast"
 import type { AuthFormData } from "@/components/AuthForm"
-import type { FullAnalysisResult } from "@/lib/api-client"
+import type { FullAnalysisResult, BuyerInquiryItem } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 
 export default function BuyerPage() {
   const { t } = useT()
+  const toast = useToast()
   const [authMode, setAuthMode] = useState<"login" | "register">("login")
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
   const [sentInquiries, setSentInquiries] = useState<Set<number>>(new Set())
+  const [sendingId, setSendingId] = useState<number | null>(null)
 
-  const user = getUser()
-  const loggedIn = isAuthenticated()
-
+  const [active, setActive] = useState("discover")
   const [rawMessage, setRawMessage] = useState("")
   const [analyzing, setAnalyzing] = useState(false)
   const [result, setResult] = useState<FullAnalysisResult | null>(null)
+  const [analysisError, setAnalysisError] = useState<string | null>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const [buyerInquiries, setBuyerInquiries] = useState<BuyerInquiryItem[]>([])
+  const [inquiriesLoading, setInquiriesLoading] = useState(false)
+  const [inquiriesError, setInquiriesError] = useState(false)
+  const [inquiriesPage, setInquiriesPage] = useState(1)
+  const [inquiriesHasNext, setInquiriesHasNext] = useState(false)
+  const [inquiriesLoadingMore, setInquiriesLoadingMore] = useState(false)
+
+  const [authReady, setAuthReady] = useState(false)
+  useEffect(() => { setAuthReady(true) }, [])
+
+  const user = authReady ? getUser() : null
+  const loggedIn = authReady && isAuthenticated()
+
+  const nav = [
+    { key: "discover", label: t.nav.discover, icon: Search },
+    { key: "inquiries", label: t.nav.myInquiries, icon: Mail },
+    { key: "saved", label: t.nav.saved, icon: Heart },
+    { key: "profile", label: t.nav.profile, icon: User },
+  ]
 
   const handleAuth = async (data: AuthFormData) => {
     setAuthLoading(true)
     setAuthError(null)
     try {
       const res = authMode === "register"
-        ? await register(data.email, data.password, data.name, data.country, data.phone)
+        ? await register(data.email, data.password, data.name, data.country, data.phone, "buyer")
         : await login(data.email, data.password)
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
@@ -46,22 +73,28 @@ export default function BuyerPage() {
     if (!rawMessage.trim()) return
     setAnalyzing(true)
     setResult(null)
+    setAnalysisError(null)
     try {
       const res = await analyzeAndMatch(rawMessage, user?.email || undefined)
       setResult(res)
     } catch (e: any) {
-      console.warn("Analysis failed", e)
+      setAnalysisError(e.message || t.common.somethingWentWrong)
+      toast.push("error", e.message || t.common.somethingWentWrong)
     } finally {
       setAnalyzing(false)
     }
   }
 
   const handleSendInquiry = async (productId: number) => {
+    setSendingId(productId)
     try {
       await sendInquiryToSeller(rawMessage, productId, user?.email || undefined)
       setSentInquiries(prev => new Set(prev).add(productId))
+      toast.push("success", t.buyer.inquirySent)
     } catch (e: any) {
-      console.warn("Send inquiry failed", e)
+      toast.push("error", e.message || t.common.somethingWentWrong)
+    } finally {
+      setSendingId(null)
     }
   }
 
@@ -69,6 +102,45 @@ export default function BuyerPage() {
     logout()
     setRawMessage("")
     setResult(null)
+  }
+
+  const loadBuyerInquiries = useCallback(async () => {
+    setInquiriesLoading(true)
+    setInquiriesError(false)
+    try {
+      const data = await getBuyerInquiries(1, 20)
+      setBuyerInquiries(data.items)
+      setInquiriesPage(data.page)
+      setInquiriesHasNext(data.has_next)
+    } catch {
+      setInquiriesError(true)
+    } finally {
+      setInquiriesLoading(false)
+    }
+  }, [])
+
+  const loadMoreBuyerInquiries = async () => {
+    setInquiriesLoadingMore(true)
+    try {
+      const data = await getBuyerInquiries(inquiriesPage + 1, 20)
+      setBuyerInquiries(prev => [...prev, ...data.items])
+      setInquiriesPage(data.page)
+      setInquiriesHasNext(data.has_next)
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setInquiriesLoadingMore(false)
+    }
+  }
+
+  useEffect(() => {
+    if (active === "inquiries") {
+      loadBuyerInquiries()
+    }
+  }, [active, loadBuyerInquiries])
+
+  if (!authReady) {
+    return <PageLoader />
   }
 
   if (!loggedIn || !user) {
@@ -84,98 +156,222 @@ export default function BuyerPage() {
     )
   }
 
-  return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-50">
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-indigo-500" />
-            <span className="text-sm text-gray-500">{user.email}</span>
-          </div>
-          <div className="flex items-center gap-3">
-            <LanguageSwitcher />
-            <button onClick={handleLogout} className="text-gray-400 hover:text-red-500 flex items-center gap-1 text-sm">
-              <LogOut className="w-4 h-4" /> {t.buyer.signOut}
-            </button>
-          </div>
-        </div>
-
-        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-          <label className="block text-sm font-medium text-gray-700 mb-2">{t.buyer.label}</label>
-          <textarea
-            className="input-field min-h-[140px] resize-y mb-4"
-            placeholder={t.buyer.placeholder}
-            value={rawMessage}
-            onChange={e => setRawMessage(e.target.value)}
-          />
-          <button
-            className="btn-primary w-full justify-center text-base py-3"
-            onClick={handleAnalyze}
-            disabled={analyzing || !rawMessage.trim()}
-          >
-            {analyzing ? (
-              <><div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {t.buyer.analyzing}</>
-            ) : (
-              <><Sparkles className="w-5 h-5" /> {t.buyer.findProducts}</>
-            )}
+  if (user.role !== "buyer") {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-sm text-center">
+          <h1 className="text-base font-semibold text-slate-900">{t.common.accountMismatch}</h1>
+          <button className="btn-primary w-full mt-6" onClick={handleLogout}>
+            {t.common.signOut}
           </button>
         </div>
+      </div>
+    )
+  }
 
-        {result && result.matchedProducts.length > 0 && (
-          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
-            <div className="flex items-center gap-2 mb-4">
-              <TrendingUp className="w-5 h-5 text-green-600" />
-              <h2 className="text-lg font-semibold">{t.buyer.matchingProducts(result.matchedProducts.length)}</h2>
-              {result.aiUsed && (
-                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full">{t.buyer.aiBadge}</span>
+  return (
+    <DashboardShell
+      nav={nav}
+      active={active}
+      onNavigate={setActive}
+      userEmail={user.email}
+      onSignOut={handleLogout}
+    >
+      {active === "discover" ? (
+        <>
+          <header className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.buyer.title}</h1>
+            <p className="mt-1 text-sm text-slate-500">{t.buyer.subtitle}</p>
+          </header>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <div className="card p-6">
+                <div className="flex items-center gap-2">
+                  <Sparkles className="w-4 h-4 text-brand-600" />
+                  <span className="text-xs font-medium text-brand-700">{t.buyer.aiPowered}</span>
+                </div>
+                <h2 className="mt-2 text-lg font-semibold text-slate-900">{t.buyer.workspaceTitle}</h2>
+                <textarea
+                  ref={textareaRef}
+                  className="input mt-3 min-h-[150px] resize-y"
+                  placeholder={t.buyer.placeholder}
+                  value={rawMessage}
+                  onChange={e => setRawMessage(e.target.value)}
+                />
+                <button
+                  className="btn-primary w-full mt-4 py-2.5"
+                  onClick={handleAnalyze}
+                  disabled={analyzing || !rawMessage.trim()}
+                >
+                  {analyzing ? (
+                    <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {t.buyer.analyzing}</>
+                  ) : (
+                    <><Sparkles className="w-4 h-4" /> {t.buyer.findProducts}</>
+                  )}
+                </button>
+                {analysisError && (
+                  <p className="mt-3 text-sm text-red-600">{analysisError}</p>
+                )}
+              </div>
+            </div>
+
+            <div className="lg:col-span-1">
+              <div className="card p-6">
+                <h3 className="text-sm font-semibold text-slate-900">{t.buyer.tipsTitle}</h3>
+                <ul className="mt-3 space-y-2.5">
+                  {t.buyer.tips.map((tip, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-slate-600">
+                      <Check className="w-4 h-4 text-brand-500 flex-shrink-0 mt-0.5" />
+                      <span>{tip}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          {result && result.matchedProducts.length > 0 && (
+            <div className="mt-8">
+              <div className="flex items-center justify-between mb-4">
+                <h2 className="text-lg font-semibold text-slate-900">
+                  {t.buyer.results(result.matchedProducts.length)}
+                </h2>
+                {result.aiUsed && <span className="badge badge-neutral">{t.buyer.aiBadge}</span>}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {result.matchedProducts.map(mp => {
+                  const sent = sentInquiries.has(mp.product_id)
+                  const pct = Math.round(mp.match_score * 100)
+                  return (
+                    <div key={mp.product_id} className="card p-5 flex flex-col">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <h3 className="font-medium text-slate-900 truncate">{mp.product_name}</h3>
+                          {mp.sku && <p className="mt-0.5 text-xs text-slate-400">SKU: {mp.sku}</p>}
+                        </div>
+                        <span className="badge badge-success flex-shrink-0">{t.buyer.matchLabel(pct)}</span>
+                      </div>
+                      <p className="mt-2 text-xs text-slate-500 line-clamp-2">{mp.match_reason}</p>
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-500">
+                        {mp.moq != null && <span>{t.buyer.moqLabel}: {mp.moq}</span>}
+                        {mp.lead_time_days != null && <span>{t.buyer.leadTime}: {mp.lead_time_days}d</span>}
+                        {mp.certifications && <span>{t.buyer.certs}: {mp.certifications}</span>}
+                      </div>
+                      {mp.pricing && <p className="mt-2 text-xs text-slate-400 truncate">{mp.pricing}</p>}
+                      <div className="mt-4 pt-4 border-t border-slate-100">
+                        <button
+                          onClick={() => handleSendInquiry(mp.product_id)}
+                          disabled={sent || sendingId === mp.product_id}
+                          className="btn-primary w-full"
+                        >
+                          <Send className="w-4 h-4" />
+                          {sent ? t.buyer.inquirySent : t.buyer.requestQuote}
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
+          {result && result.matchedProducts.length === 0 && (
+            <div className="mt-8">
+              <EmptyState
+                icon={<Package className="w-5 h-5" />}
+                title={t.buyer.noMatchTitle}
+                description={t.buyer.noMatchHint}
+                action={
+                  <button className="btn-secondary" onClick={() => textareaRef.current?.focus()}>
+                    {t.buyer.editRequest}
+                  </button>
+                }
+              />
+            </div>
+          )}
+        </>
+      ) : active === "inquiries" ? (
+        <>
+          <header className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.nav.myInquiries}</h1>
+          </header>
+
+          {inquiriesLoading ? (
+            <TableSkeleton rows={4} cols={3} />
+          ) : inquiriesError ? (
+            <EmptyState
+              title={t.common.somethingWentWrong}
+              action={<button className="btn-secondary" onClick={loadBuyerInquiries}>{t.common.tryAgain}</button>}
+            />
+          ) : buyerInquiries.length === 0 ? (
+            <EmptyState icon={<Mail className="w-5 h-5" />} title={t.buyer.noInquiries} />
+          ) : (
+            <div className="space-y-4">
+              {buyerInquiries.map(inq => (
+                <div key={inq.id} className="card p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-slate-900 truncate">{inq.product_name || "—"}</h3>
+                      <p className="mt-0.5 text-xs text-slate-500">
+                        {t.buyer.supplier}: {inq.seller_name || inq.seller_email || "—"}
+                      </p>
+                      <p className="mt-0.5 text-xs text-slate-400">
+                        {inq.created_at ? new Date(inq.created_at).toLocaleDateString() : ""}
+                      </p>
+                    </div>
+                    <StatusBadge
+                      status={inq.status}
+                      label={inq.status === "replied" ? t.buyer.replied : t.buyer.pending}
+                    />
+                  </div>
+
+                  <div className="mt-3 bg-slate-50 rounded-lg p-3">
+                    <p className="text-xs font-medium text-slate-400 uppercase tracking-wide mb-1">{t.buyer.request}</p>
+                    <p className="whitespace-pre-wrap text-sm text-slate-700">{inq.raw_message}</p>
+                  </div>
+
+                  {inq.reply_body && (
+                    <div className="mt-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm font-medium text-slate-700">{t.buyer.reply}</span>
+                        <button
+                          className="btn-secondary btn-sm"
+                          onClick={async () => {
+                            try {
+                              await navigator.clipboard.writeText(inq.reply_body || "")
+                              toast.push("success", t.common.copied)
+                            } catch {
+                              toast.push("error", t.common.somethingWentWrong)
+                            }
+                          }}
+                        >
+                          <Copy className="w-3.5 h-3.5" /> {t.common.copy}
+                        </button>
+                      </div>
+                      <p className="whitespace-pre-wrap text-sm text-slate-700 bg-slate-50 border border-slate-200 p-3 rounded-lg max-h-60 overflow-y-auto">
+                        {inq.reply_body}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              ))}
+              {inquiriesHasNext && (
+                <div className="pt-2 text-center">
+                  <button className="btn-secondary" onClick={loadMoreBuyerInquiries} disabled={inquiriesLoadingMore}>
+                    {inquiriesLoadingMore ? t.common.loading : t.common.loadMore}
+                  </button>
+                </div>
               )}
             </div>
-            <div className="space-y-3">
-              {result.matchedProducts.map(mp => {
-                const sent = sentInquiries.has(mp.product_id)
-                return (
-                  <div key={mp.product_id} className="p-4 bg-gray-50 rounded-xl">
-                    <div className="flex items-start justify-between mb-2">
-                      <div>
-                        <h3 className="font-semibold text-gray-900">{mp.product_name}</h3>
-                        <p className="text-xs text-gray-500">{mp.match_reason}</p>
-                      </div>
-                      <span className="text-sm font-bold text-green-600">
-                        {Math.round(mp.match_score * 100)}%
-                      </span>
-                    </div>
-                    <div className="flex flex-wrap gap-3 text-xs text-gray-600 mb-3">
-                      {mp.moq && <span>{t.buyer.moqLabel}: {mp.moq}</span>}
-                      {mp.lead_time_days && <span>{t.buyer.leadTime}: {mp.lead_time_days}d</span>}
-                      {mp.certifications && <span>{t.buyer.certs}: {mp.certifications}</span>}
-                      {mp.pricing && <span className="text-gray-400">{mp.pricing}</span>}
-                    </div>
-                    <button
-                      onClick={() => handleSendInquiry(mp.product_id)}
-                      disabled={sent}
-                      className={`w-full py-2 rounded-lg text-sm font-medium transition-colors flex items-center justify-center gap-2 ${
-                        sent
-                          ? "bg-green-50 text-green-600 border border-green-200 cursor-default"
-                          : "bg-indigo-50 text-indigo-600 border border-indigo-200 hover:bg-indigo-100"
-                      }`}
-                    >
-                      <Send className="w-3.5 h-3.5" />
-                      {sent ? t.buyer.inquirySent : t.buyer.sendInquiry}
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {result && result.matchedProducts.length === 0 && (
-          <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
-            <p>{t.buyer.noMatch}</p>
-            <p className="text-sm mt-2">{t.buyer.noMatchHint}</p>
-          </div>
-        )}
-      </div>
-    </div>
+          )}
+        </>
+      ) : (
+        <EmptyState
+          title={nav.find(n => n.key === active)?.label || ""}
+          description={t.common.comingSoon}
+        />
+      )}
+    </DashboardShell>
   )
 }

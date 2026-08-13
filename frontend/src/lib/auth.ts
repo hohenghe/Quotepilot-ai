@@ -39,6 +39,10 @@ export function isSeller(): boolean {
   return getUser()?.role === "seller"
 }
 
+export function isBuyer(): boolean {
+  return getUser()?.role === "buyer"
+}
+
 export function isAdmin(): boolean {
   return getUser()?.role === "admin"
 }

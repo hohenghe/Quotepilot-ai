@@ -15,6 +15,8 @@ export interface Product {
   image_url: string | null
   is_active: boolean
   created_at: string | null
+  seller_name: string | null
+  seller_email: string | null
 }
 
 export interface ProductListResponse {

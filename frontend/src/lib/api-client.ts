@@ -272,10 +272,10 @@ export async function login(email: string, password: string): Promise<AuthRespon
   })
 }
 
-export async function register(email: string, password: string, name: string, country: string, phone?: string): Promise<AuthResponse> {
+export async function register(email: string, password: string, name: string, country: string, phone?: string, role: "buyer" | "seller" = "buyer"): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name, country, phone: phone || null }),
+    body: JSON.stringify({ email, password, name, country, phone: phone || null, role }),
   })
 }
 
@@ -334,6 +334,27 @@ export interface SellerInquiryItem {
   created_at: string | null
 }
 
+export interface BuyerInquiryItem {
+  id: number
+  product_id: number | null
+  product_name: string | null
+  seller_id: number | null
+  seller_name: string | null
+  seller_email: string | null
+  raw_message: string
+  status: string
+  reply_body: string | null
+  created_at: string | null
+}
+
+export interface PaginatedResult<T> {
+  items: T[]
+  page: number
+  page_size: number
+  total: number
+  has_next: boolean
+}
+
 export async function sendInquiryToSeller(inquiryText: string, productId: number, buyerEmail?: string): Promise<{ ok: boolean; id: number }> {
   return await request("/api/seller-inquiries/send", {
     method: "POST",
@@ -341,8 +362,12 @@ export async function sendInquiryToSeller(inquiryText: string, productId: number
   })
 }
 
-export async function getSellerReceivedInquiries(page = 1): Promise<{ total: number; items: SellerInquiryItem[] }> {
-  return await request(`/api/seller-inquiries/received?page=${page}&page_size=50`)
+export async function getSellerReceivedInquiries(page = 1, pageSize = 50): Promise<PaginatedResult<SellerInquiryItem>> {
+  return await request(`/api/seller-inquiries/received?page=${page}&page_size=${pageSize}`)
+}
+
+export async function getBuyerInquiries(page = 1, pageSize = 20): Promise<PaginatedResult<BuyerInquiryItem>> {
+  return await request(`/api/inquiries/buyer?page=${page}&page_size=${pageSize}`)
 }
 
 export async function generateSellerReply(inquiryId: number): Promise<{ subject: string; email_body: string }> {

@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
-from app.core.auth import require_admin, require_auth, require_seller
+from app.core.auth import require_admin, require_auth, require_seller, require_buyer
 from app.models.inquiry import Inquiry, InquiryAnalysis
 from app.models.product import Product
 from app.models.user import User
 from app.models.quote import Quote
+from app.models.seller_inquiry import SellerInquiry
 from app.schemas.inquiry import (
     InquiryCreate,
     InquiryResponse,
@@ -40,6 +41,54 @@ async def list_inquiries(
 
     items = [InquiryResponse.model_validate(i) for i in inquiries]
     return {"total": total, "items": items}
+
+
+@router.get("/buyer", response_model=dict)
+async def list_buyer_inquiries(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_buyer),
+):
+    count_query = select(func.count(SellerInquiry.id)).where(SellerInquiry.buyer_id == user.id)
+    total_result = await db.execute(count_query)
+    total = total_result.scalar() or 0
+
+    stmt = (
+        select(SellerInquiry, Product.name, User.email, User.name)
+        .outerjoin(Product, SellerInquiry.product_id == Product.id)
+        .outerjoin(User, SellerInquiry.seller_id == User.id)
+        .where(SellerInquiry.buyer_id == user.id)
+        .order_by(SellerInquiry.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+    )
+    result = await db.execute(stmt)
+    rows = result.all()
+
+    items = [
+        {
+            "id": si.id,
+            "product_id": si.product_id,
+            "product_name": product_name,
+            "seller_id": si.seller_id,
+            "seller_name": seller_name,
+            "seller_email": seller_email,
+            "raw_message": si.raw_message,
+            "status": si.status,
+            "reply_body": si.reply_body,
+            "created_at": si.created_at.isoformat() if si.created_at else None,
+        }
+        for si, product_name, seller_email, seller_name in rows
+    ]
+
+    return {
+        "items": items,
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "has_next": page * page_size < total,
+    }
 
 
 @router.post("/analyze", response_model=InquiryAnalysisResult)

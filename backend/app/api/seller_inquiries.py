@@ -68,7 +68,6 @@ async def list_received(
     items = result.scalars().all()
 
     return {
-        "total": total,
         "items": [
             {
                 "id": i.id,
@@ -81,6 +80,10 @@ async def list_received(
             }
             for i in items
         ],
+        "page": page,
+        "page_size": page_size,
+        "total": total,
+        "has_next": page * page_size < total,
     }
 
 

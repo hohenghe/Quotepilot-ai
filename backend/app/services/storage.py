@@ -163,7 +163,7 @@ def _build_storage() -> StorageService:
     backend = (settings.STORAGE_BACKEND or "local").strip().lower()
     if backend == "r2":
         return R2Storage(
-            bucket=settings.R2_BUCKET,
+            bucket=settings.R2_BUCKET_NAME,
             prefix=settings.R2_STORAGE_PREFIX,
             account_id=settings.R2_ACCOUNT_ID,
             access_key_id=settings.R2_ACCESS_KEY_ID,
@@ -178,3 +178,54 @@ def get_storage() -> StorageService:
     if _storage is None:
         _storage = _build_storage()
     return _storage
+
+
+# ── R2 public object storage (media files: reviews, product-images, ...) ──
+
+_r2_client = None
+
+
+def _get_r2_client():
+    global _r2_client
+    if _r2_client is None:
+        import boto3
+        endpoint = settings.R2_ENDPOINT_URL or (
+            f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
+            if settings.R2_ACCOUNT_ID
+            else ""
+        )
+        _r2_client = boto3.client(
+            "s3",
+            endpoint_url=endpoint or None,
+            aws_access_key_id=settings.R2_ACCESS_KEY_ID or None,
+            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY or None,
+            region_name="auto",
+        )
+    return _r2_client
+
+
+def get_public_url(object_key: str) -> str:
+    base = (settings.R2_PUBLIC_BASE_URL or "").rstrip("/")
+    key = object_key.lstrip("/")
+    return f"{base}/{key}" if base else key
+
+
+async def upload_file(object_key: str, content: bytes, content_type: str) -> str:
+    client = await asyncio.to_thread(_get_r2_client)
+    await asyncio.to_thread(
+        client.put_object,
+        Bucket=settings.R2_BUCKET_NAME,
+        Key=object_key,
+        Body=content,
+        ContentType=content_type,
+    )
+    return get_public_url(object_key)
+
+
+async def delete_file(object_key: str) -> None:
+    client = await asyncio.to_thread(_get_r2_client)
+    await asyncio.to_thread(
+        client.delete_object,
+        Bucket=settings.R2_BUCKET_NAME,
+        Key=object_key,
+    )

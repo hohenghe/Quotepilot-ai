@@ -24,11 +24,13 @@ class Settings(BaseSettings):
     # Optional override for the local upload directory (defaults to <backend>/uploads)
     STORAGE_LOCAL_DIR: str = ""
 
-    # Cloudflare R2 (S3-compatible) settings. Only used when STORAGE_BACKEND=r2.
+    # Cloudflare R2 (S3-compatible) settings.
     R2_ACCOUNT_ID: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
-    R2_BUCKET: str = ""
+    R2_BUCKET_NAME: str = ""
+    R2_PUBLIC_BASE_URL: str = ""
+    # Optional overrides (endpoint is normally derived from R2_ACCOUNT_ID)
     R2_ENDPOINT_URL: str = ""
     R2_STORAGE_PREFIX: str = "documents"
 

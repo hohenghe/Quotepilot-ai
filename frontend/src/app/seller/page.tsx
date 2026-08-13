@@ -4,10 +4,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import {
   LayoutDashboard, Package, Mail, User, Upload, Trash2, Search, FileText,
-  Copy, Clock, CheckCircle2, Inbox,
+  Copy, Clock, CheckCircle2, Inbox, Star, Flag,
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getSellerReviews, reportReview, getSellerScore } from "@/lib/api-client"
 import { COUNTRIES } from "@/lib/countries"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
@@ -18,10 +18,10 @@ import PageLoader from "@/components/PageLoader"
 import { TableSkeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
 import { useT } from "@/i18n/I18nProvider"
-import type { SellerInquiryItem } from "@/lib/api-client"
+import type { SellerInquiryItem, ReviewItem } from "@/lib/api-client"
 import type { Product } from "@/types"
 
-type Tab = "overview" | "products" | "inquiries" | "profile"
+type Tab = "overview" | "products" | "inquiries" | "profile" | "reviews"
 
 export default function SellerPage() {
   const { t } = useT()
@@ -65,10 +65,16 @@ export default function SellerPage() {
   const [profileCountry, setProfileCountry] = useState("CN")
   const [savingProfile, setSavingProfile] = useState(false)
 
+  const [sellerReviews, setSellerReviews] = useState<ReviewItem[]>([])
+  const [reviewsLoading, setReviewsLoading] = useState(false)
+  const [reviewsError, setReviewsError] = useState(false)
+  const [storeScore, setStoreScore] = useState<number | null>(null)
+
   const nav = [
     { key: "overview", label: t.nav.overview, icon: LayoutDashboard },
     { key: "products", label: t.nav.products, icon: Package },
     { key: "inquiries", label: t.nav.inquiries, icon: Mail },
+    { key: "reviews", label: t.seller.reviews, icon: Star },
     { key: "profile", label: t.nav.profile, icon: User },
   ]
 
@@ -149,6 +155,44 @@ export default function SellerPage() {
       toast.push("error", t.common.somethingWentWrong)
     } finally {
       setSavingProfile(false)
+    }
+  }
+
+  const loadReviews = useCallback(async () => {
+    setReviewsLoading(true)
+    setReviewsError(false)
+    try {
+      const data = await getSellerReviews()
+      setSellerReviews(data.items)
+    } catch {
+      setReviewsError(true)
+    } finally {
+      setReviewsLoading(false)
+    }
+  }, [])
+
+  const loadScore = useCallback(async () => {
+    try {
+      const data = await getSellerScore()
+      setStoreScore(data.score)
+    } catch { }
+  }, [])
+
+  useEffect(() => {
+    if (tab === "reviews") loadReviews()
+  }, [tab, loadReviews])
+
+  useEffect(() => {
+    if (isAuthenticated() && (isSeller() || isAdmin())) loadScore()
+  }, [loadScore])
+
+  const handleReportReview = async (reviewId: number) => {
+    try {
+      await reportReview(reviewId)
+      toast.push("success", t.review.reportSuccess)
+      await loadReviews()
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
     }
   }
 
@@ -263,6 +307,20 @@ export default function SellerPage() {
             <StatCard label={t.seller.pending} value={pendingCount} icon={Clock} />
             <StatCard label={t.seller.replied} value={repliedCount} icon={CheckCircle2} />
           </div>
+
+          {user?.role === "seller" && (
+            <div className="card p-5 mt-4 max-w-sm">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-lg bg-slate-100 text-slate-500 flex items-center justify-center">
+                  <Star className="w-4 h-4" />
+                </div>
+                <p className="text-sm text-slate-500">{t.seller.storeScore}</p>
+              </div>
+              <p className="mt-3 text-2xl font-semibold tracking-tight text-slate-900">
+                {storeScore != null ? storeScore.toFixed(1) : "—"}
+              </p>
+            </div>
+          )}
         </>
       )}
 
@@ -478,6 +536,57 @@ export default function SellerPage() {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+        </>
+      )}
+
+      {tab === "reviews" && (
+        <>
+          <header className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.seller.reviews}</h1>
+          </header>
+
+          {reviewsLoading ? (
+            <TableSkeleton rows={4} cols={3} />
+          ) : reviewsError ? (
+            <EmptyState
+              title={t.common.somethingWentWrong}
+              action={<button className="btn-secondary" onClick={loadReviews}>{t.common.tryAgain}</button>}
+            />
+          ) : sellerReviews.length === 0 ? (
+            <EmptyState icon={<Star className="w-5 h-5" />} title={t.seller.noReviews} />
+          ) : (
+            <div className="space-y-4">
+              {sellerReviews.map(r => (
+                <div key={r.id} className="card p-5">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-slate-900 truncate">{r.product_name || "—"}</span>
+                        <span className="text-amber-500 text-sm">★ {r.rating.toFixed(1)}</span>
+                      </div>
+                      <p className="mt-0.5 text-xs text-slate-500">{t.seller.from}: {r.user_email || "—"}</p>
+                      <p className="mt-0.5 text-xs text-slate-400">{r.created_at ? new Date(r.created_at).toLocaleDateString() : ""}</p>
+                    </div>
+                    {r.reported ? (
+                      <span className="badge badge-warning flex-shrink-0">{t.review.reported}</span>
+                    ) : (
+                      <button className="btn-secondary btn-sm flex-shrink-0" onClick={() => handleReportReview(r.id)}>
+                        <Flag className="w-3.5 h-3.5" /> {t.review.report}
+                      </button>
+                    )}
+                  </div>
+                  {r.content && <p className="mt-2 text-sm text-slate-700 whitespace-pre-wrap">{r.content}</p>}
+                  {r.images.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {r.images.map((img, i) => (
+                        <img key={i} src={img} alt="" className="w-16 h-16 object-cover rounded-lg border border-slate-200" />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </>

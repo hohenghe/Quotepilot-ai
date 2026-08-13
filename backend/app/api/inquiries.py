@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
+from sqlalchemy import select, func, delete
+from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.auth import require_admin, require_auth, require_seller, require_buyer
 from app.models.inquiry import Inquiry, InquiryAnalysis
@@ -187,3 +188,24 @@ async def admin_list_inquiries(
 
     items = [InquiryResponse.model_validate(i) for i in inquiries]
     return {"total": total, "items": items}
+
+
+class BatchDeleteRequest(BaseModel):
+    ids: list[int]
+
+
+@router.delete("/batch")
+async def delete_inquiries_batch(
+    data: BatchDeleteRequest,
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_admin),
+):
+    if not data.ids:
+        return {"success": True, "deleted_count": 0}
+
+    await db.execute(delete(SellerInquiry).where(SellerInquiry.inquiry_id.in_(data.ids)))
+    await db.execute(delete(Quote).where(Quote.inquiry_id.in_(data.ids)))
+    await db.execute(delete(InquiryAnalysis).where(InquiryAnalysis.inquiry_id.in_(data.ids)))
+    result = await db.execute(delete(Inquiry).where(Inquiry.id.in_(data.ids)))
+    await db.commit()
+    return {"success": True, "deleted_count": result.rowcount or 0}

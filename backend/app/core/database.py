@@ -124,6 +124,17 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("product_id", "INTEGER NOT NULL", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
+        "reviews": [
+            ("id", "BIGSERIAL PRIMARY KEY", None),
+            ("product_id", "INTEGER NOT NULL", None),
+            ("seller_id", "INTEGER NOT NULL", None),
+            ("user_id", "INTEGER NOT NULL", None),
+            ("rating", "DOUBLE PRECISION NOT NULL", None),
+            ("content", "TEXT", None),
+            ("images", "JSONB DEFAULT '[]'", None),
+            ("reported", "BOOLEAN DEFAULT FALSE", None),
+            ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+        ],
     }
 
 
@@ -180,6 +191,7 @@ async def init_db():
     from app.models.user import User
     from app.models.seller_inquiry import SellerInquiry
     from app.models.saved_product import SavedProduct
+    from app.models.review import Review
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

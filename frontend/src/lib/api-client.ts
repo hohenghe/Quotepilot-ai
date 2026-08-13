@@ -446,3 +446,110 @@ export async function deleteAllProducts(): Promise<number> {
   })
   return data.deleted_count
 }
+
+// ── Reviews ─────────────────────────────────────────────────────
+
+export interface ReviewItem {
+  id: number
+  product_id: number
+  product_name?: string
+  user_id: number
+  user_name?: string
+  user_email?: string
+  rating: number
+  content: string | null
+  images: string[]
+  reported: boolean
+  created_at: string | null
+}
+
+export interface ProductReviews {
+  items: ReviewItem[]
+  rating: number | null
+  review_count: number
+}
+
+export async function getProductReviews(productId: number): Promise<ProductReviews> {
+  return await request(`/api/reviews?product_id=${productId}`)
+}
+
+export async function createReview(productId: number, rating: number, content: string, images: string[]): Promise<void> {
+  await request("/api/reviews", {
+    method: "POST",
+    body: JSON.stringify({ product_id: productId, rating, content, images }),
+  })
+}
+
+export async function deleteReview(reviewId: number): Promise<void> {
+  await request(`/api/reviews/${reviewId}`, { method: "DELETE" })
+}
+
+export async function reportReview(reviewId: number): Promise<void> {
+  await request(`/api/reviews/${reviewId}/report`, { method: "POST" })
+}
+
+export async function getSellerReviews(): Promise<{ items: ReviewItem[] }> {
+  return await request("/api/reviews/seller")
+}
+
+export async function adminListReviews(): Promise<{ items: ReviewItem[] }> {
+  return await request("/api/reviews/admin/all")
+}
+
+export async function getSellerScore(): Promise<{ score: number | null }> {
+  return await request("/api/sellers/score")
+}
+
+// ── Files ───────────────────────────────────────────────────────
+
+export async function uploadImage(file: File): Promise<{ url: string }> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers["Authorization"] = `Bearer ${token}`
+  const res = await fetch(`${getApiBaseUrl()}/api/files/upload`, {
+    method: "POST",
+    body: formData,
+    headers,
+  })
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`Upload failed (${res.status}): ${text.slice(0, 200)}`)
+  }
+  return res.json()
+}
+
+// ── Admin batch ─────────────────────────────────────────────────
+
+export interface AdminUserItem {
+  id: number
+  email: string
+  role: string
+  name: string | null
+  country: string | null
+  phone: string | null
+  uid: string | null
+  score: number | null
+  created_at: string | null
+}
+
+export async function adminListUsers(page = 1, pageSize = 50): Promise<{ items: AdminUserItem[]; total: number }> {
+  return await request(`/api/admin/users?page=${page}&page_size=${pageSize}`)
+}
+
+export async function adminDeleteUsers(ids: number[]): Promise<number> {
+  const data = await request<{ success: boolean; deleted_count: number }>("/api/admin/users/batch", {
+    method: "DELETE",
+    body: JSON.stringify({ ids }),
+  })
+  return data.deleted_count
+}
+
+export async function adminDeleteInquiries(ids: number[]): Promise<number> {
+  const data = await request<{ success: boolean; deleted_count: number }>("/api/inquiries/batch", {
+    method: "DELETE",
+    body: JSON.stringify({ ids }),
+  })
+  return data.deleted_count
+}

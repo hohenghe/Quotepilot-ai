@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy } from "lucide-react"
+import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star } from "lucide-react"
 import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
@@ -9,6 +9,7 @@ import DashboardShell from "@/components/DashboardShell"
 import EmptyState from "@/components/EmptyState"
 import PageLoader from "@/components/PageLoader"
 import StatusBadge from "@/components/StatusBadge"
+import ReviewModal from "@/components/ReviewModal"
 import { TableSkeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
 import type { AuthFormData } from "@/components/AuthForm"
@@ -41,6 +42,8 @@ export default function BuyerPage() {
   const [savedProducts, setSavedProducts] = useState<SavedProductItem[]>([])
   const [savedLoading, setSavedLoading] = useState(false)
   const [savedError, setSavedError] = useState(false)
+
+  const [reviewTarget, setReviewTarget] = useState<{ id: number; name: string } | null>(null)
 
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => { setAuthReady(true) }, [])
@@ -320,7 +323,7 @@ export default function BuyerPage() {
                         {mp.certifications && <span>{t.buyer.certs}: {mp.certifications}</span>}
                       </div>
                       {mp.pricing && <p className="mt-2 text-xs text-slate-400 truncate">{mp.pricing}</p>}
-                      <div className="mt-4 pt-4 border-t border-slate-100">
+                      <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
                         <button
                           onClick={() => handleSendInquiry(mp.product_id)}
                           disabled={sent || sendingId === mp.product_id}
@@ -328,6 +331,13 @@ export default function BuyerPage() {
                         >
                           <Send className="w-4 h-4" />
                           {sent ? t.buyer.inquirySent : t.buyer.requestQuote}
+                        </button>
+                        <button
+                          className="btn-secondary w-full"
+                          onClick={() => setReviewTarget({ id: mp.product_id, name: mp.product_name })}
+                        >
+                          <Star className="w-4 h-4" />
+                          {t.review.title}
                         </button>
                       </div>
                     </div>
@@ -478,6 +488,14 @@ export default function BuyerPage() {
           description={t.common.comingSoon}
         />
       )}
+
+      <ReviewModal
+        productId={reviewTarget?.id ?? 0}
+        productName={reviewTarget?.name ?? ""}
+        open={reviewTarget !== null}
+        canWrite={user.role !== "admin"}
+        onClose={() => setReviewTarget(null)}
+      />
     </DashboardShell>
   )
 }

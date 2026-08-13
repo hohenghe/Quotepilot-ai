@@ -5,7 +5,7 @@ from sqlalchemy import select, func, update
 from pydantic import BaseModel
 from typing import List
 from app.core.database import get_db
-from app.core.auth import require_seller, require_admin, get_current_user
+from app.core.auth import require_seller, require_admin, get_current_user, require_auth
 from app.models.product import Product
 from app.models.document import Document
 from app.models.user import User
@@ -152,10 +152,13 @@ class BatchDeleteRequest(BaseModel):
 async def delete_products_batch(
     data: BatchDeleteRequest,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(require_seller),
+    user: User = Depends(require_auth),
 ):
-    """Bulk soft-delete multiple products owned by the current seller.
-    One HTTP request, one bulk UPDATE, one commit."""
+    """Bulk soft-delete products. Sellers are scoped to their own products;
+    admins may delete any product. One HTTP request, one bulk UPDATE, one commit."""
+    if user.role not in ("seller", "admin"):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
     ids = data.product_ids
     if not ids:
         return {"success": True, "deleted_count": 0}
@@ -165,14 +168,14 @@ async def delete_products_batch(
     deleted_count = 0
     for i in range(0, len(ids), chunk_size):
         chunk = ids[i:i + chunk_size]
+        stmt = update(Product).where(
+            Product.id.in_(chunk),
+            Product.is_active == True,
+        )
+        if user.role == "seller":
+            stmt = stmt.where(Product.seller_id == user.id)
         result = await db.execute(
-            update(Product)
-            .where(
-                Product.id.in_(chunk),
-                Product.seller_id == user.id,
-                Product.is_active == True,
-            )
-            .values(is_active=False, embedding_status="skipped")
+            stmt.values(is_active=False, embedding_status="skipped")
         )
         deleted_count += result.rowcount or 0
 

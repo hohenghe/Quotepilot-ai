@@ -41,8 +41,8 @@ export default function LanguageSwitcher() {
       </button>
 
       {open && (
-        <div className="absolute top-full left-0 mt-1 w-40 bg-white border border-gray-200 rounded-lg shadow-lg z-50 py-1">
-          <p className="px-3 py-1.5 text-xs text-gray-400 font-medium uppercase tracking-wider">
+        <div className="absolute right-0 top-full mt-1 w-44 bg-white border border-slate-200 rounded-lg shadow-lg z-50 py-1">
+          <p className="px-3 py-1.5 text-xs text-slate-400 font-medium uppercase tracking-wider">
             {t.language.switch}
           </p>
           {locales.map((loc) => (
@@ -52,8 +52,8 @@ export default function LanguageSwitcher() {
                 setLocale(loc as Locale)
                 setOpen(false)
               }}
-              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-gray-50 transition-colors ${
-                locale === loc ? "text-brand-600 font-medium bg-brand-50" : "text-gray-700"
+              className={`w-full text-left px-3 py-2 text-sm flex items-center gap-2 hover:bg-slate-50 transition-colors ${
+                locale === loc ? "text-brand-600 font-medium bg-brand-50" : "text-slate-700"
               }`}
             >
               <span className="text-base">{FLAGS[loc]}</span>

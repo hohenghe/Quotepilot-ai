@@ -4,6 +4,7 @@ import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
 import { COUNTRIES } from "@/lib/countries"
 import { useT } from "@/i18n/I18nProvider"
+import LanguageSwitcher from "@/components/LanguageSwitcher"
 
 interface Props {
   mode: "login" | "register"
@@ -50,7 +51,10 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
   const displayError = localError || error
 
   return (
-    <div className="min-h-screen bg-slate-50 flex items-center justify-center py-10">
+    <div className="min-h-screen bg-slate-50 flex items-center justify-center py-10 relative">
+      <div className="absolute top-4 right-4 z-50">
+        <LanguageSwitcher />
+      </div>
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4">
         <div className="text-center mb-6">
           <h1 className="text-2xl font-bold text-gray-900">{title}</h1>

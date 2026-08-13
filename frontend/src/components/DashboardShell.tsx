@@ -45,17 +45,20 @@ export default function DashboardShell({
           open ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        <div className="h-16 flex items-center gap-2.5 px-5 border-b border-slate-200 flex-shrink-0">
+        <div className="h-16 flex items-center gap-2.5 px-4 border-b border-slate-200 flex-shrink-0">
           <div className="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center flex-shrink-0">
             <Zap className="w-4 h-4" />
           </div>
-          <div className="leading-tight min-w-0">
+          <div className="leading-tight min-w-0 flex-1">
             <p className="font-semibold text-slate-900 truncate">{t.common.appName}</p>
             <p className="text-[11px] text-slate-500 truncate">{t.common.appTagline}</p>
           </div>
+          <div className="hidden lg:block flex-shrink-0">
+            <LanguageSwitcher />
+          </div>
           <button
             onClick={() => setOpen(false)}
-            className="ml-auto p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden"
+            className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg lg:hidden flex-shrink-0"
             aria-label="Close menu"
           >
             <X className="w-4 h-4" />
@@ -86,7 +89,6 @@ export default function DashboardShell({
             </div>
             <p className="text-sm font-medium text-slate-700 truncate">{userEmail}</p>
           </div>
-          <LanguageSwitcher />
           <button
             onClick={onSignOut}
             className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors duration-150"

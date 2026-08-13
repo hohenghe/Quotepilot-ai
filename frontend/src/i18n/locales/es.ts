@@ -23,6 +23,7 @@ const es = {
     comingSoon: "Próximamente",
     copied: "Copiado al portapapeles",
     accountMismatch: "Este tipo de cuenta no puede acceder a este portal. Inicie sesión con la cuenta correcta.",
+    adminNoTrading: "Las cuentas de administrador no pueden participar en actividades comerciales.",
     loadMore: "Cargar más",
   },
   sidebar: {
@@ -160,6 +161,11 @@ const es = {
     replied: "Respondido",
     reply: "Respuesta del vendedor",
     request: "Su solicitud",
+    savedTitle: "Productos guardados",
+    savedEmpty: "Aún no hay productos guardados",
+    savedDesc: "Guarde productos de sus resultados de búsqueda para revisarlos más tarde.",
+    save: "Guardar",
+    unsave: "Quitar de guardados",
   },
   seller: {
     portalTitle: "Portal del Vendedor",
@@ -197,6 +203,9 @@ const es = {
     buyer: "Comprador",
     received: "Recibido",
     aiGenerated: "Respuesta generada por IA",
+    memberId: "ID de miembro",
+    saveProfile: "Guardar cambios",
+    profileUpdated: "Perfil actualizado correctamente.",
   },
   admin: {
     portalTitle: "Panel de Administración",

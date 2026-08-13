@@ -25,6 +25,12 @@ class LoginRequest(BaseModel):
     role: str | None = None
 
 
+class UpdateProfileRequest(BaseModel):
+    name: str | None = None
+    phone: str | None = None
+    country: str | None = None
+
+
 class AuthResponse(BaseModel):
     token: str
     user_id: int
@@ -115,6 +121,26 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.get("/me", response_model=AuthResponse)
 async def me(user: User = Depends(require_auth)):
+    return AuthResponse(
+        token="", user_id=user.id, email=user.email, role=user.role,
+        name=user.name, country=user.country, phone=user.phone, uid=user.uid,
+    )
+
+
+@router.put("/me", response_model=AuthResponse)
+async def update_me(
+    data: UpdateProfileRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_auth),
+):
+    if data.name is not None:
+        user.name = data.name.strip() or None
+    if data.phone is not None:
+        user.phone = data.phone.strip() or None
+    if data.country is not None:
+        user.country = data.country
+    await db.commit()
+    await db.refresh(user)
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
         name=user.name, country=user.country, phone=user.phone, uid=user.uid,

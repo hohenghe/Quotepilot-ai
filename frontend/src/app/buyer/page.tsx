@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy } from "lucide-react"
-import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries } from "@/lib/api-client"
+import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
 import DashboardShell from "@/components/DashboardShell"
@@ -12,7 +12,7 @@ import StatusBadge from "@/components/StatusBadge"
 import { TableSkeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
 import type { AuthFormData } from "@/components/AuthForm"
-import type { FullAnalysisResult, BuyerInquiryItem } from "@/lib/api-client"
+import type { FullAnalysisResult, BuyerInquiryItem, SavedProductItem } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 
 export default function BuyerPage() {
@@ -37,6 +37,10 @@ export default function BuyerPage() {
   const [inquiriesPage, setInquiriesPage] = useState(1)
   const [inquiriesHasNext, setInquiriesHasNext] = useState(false)
   const [inquiriesLoadingMore, setInquiriesLoadingMore] = useState(false)
+
+  const [savedProducts, setSavedProducts] = useState<SavedProductItem[]>([])
+  const [savedLoading, setSavedLoading] = useState(false)
+  const [savedError, setSavedError] = useState(false)
 
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => { setAuthReady(true) }, [])
@@ -138,6 +142,47 @@ export default function BuyerPage() {
       loadBuyerInquiries()
     }
   }, [active, loadBuyerInquiries])
+
+  const savedIds = new Set(savedProducts.map(s => s.product_id))
+
+  const loadSavedProducts = useCallback(async () => {
+    setSavedLoading(true)
+    setSavedError(false)
+    try {
+      const items = await getSavedProducts()
+      setSavedProducts(items)
+    } catch {
+      setSavedError(true)
+    } finally {
+      setSavedLoading(false)
+    }
+  }, [])
+
+  const handleToggleSave = async (productId: number) => {
+    if (savedIds.has(productId)) {
+      try {
+        await unsaveProduct(productId)
+        setSavedProducts(prev => prev.filter(s => s.product_id !== productId))
+        toast.push("success", t.buyer.unsave)
+      } catch {
+        toast.push("error", t.common.somethingWentWrong)
+      }
+    } else {
+      try {
+        await saveProduct(productId)
+        await loadSavedProducts()
+        toast.push("success", t.buyer.save)
+      } catch {
+        toast.push("error", t.common.somethingWentWrong)
+      }
+    }
+  }
+
+  useEffect(() => {
+    if (user && user.role !== "admin") {
+      loadSavedProducts()
+    }
+  }, [user, loadSavedProducts])
 
   if (!authReady) {
     return <PageLoader />
@@ -251,7 +296,22 @@ export default function BuyerPage() {
                           <h3 className="font-medium text-slate-900 truncate">{mp.product_name}</h3>
                           {mp.sku && <p className="mt-0.5 text-xs text-slate-400">SKU: {mp.sku}</p>}
                         </div>
-                        <span className="badge badge-success flex-shrink-0">{t.buyer.matchLabel(pct)}</span>
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="badge badge-success">{t.buyer.matchLabel(pct)}</span>
+                          {user.role !== "admin" && (
+                            <button
+                              onClick={() => handleToggleSave(mp.product_id)}
+                              className={`p-1.5 rounded-lg transition-colors ${
+                                savedIds.has(mp.product_id)
+                                  ? "text-brand-600 bg-brand-50"
+                                  : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                              }`}
+                              aria-label={savedIds.has(mp.product_id) ? t.buyer.unsave : t.buyer.save}
+                            >
+                              <Heart className={`w-4 h-4 ${savedIds.has(mp.product_id) ? "fill-current" : ""}`} />
+                            </button>
+                          )}
+                        </div>
                       </div>
                       <p className="mt-2 text-xs text-slate-500 line-clamp-2">{mp.match_reason}</p>
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-500">
@@ -364,6 +424,51 @@ export default function BuyerPage() {
                   </button>
                 </div>
               )}
+            </div>
+          )}
+        </>
+      ) : active === "saved" ? (
+        <>
+          <header className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.buyer.savedTitle}</h1>
+          </header>
+
+          {user.role === "admin" ? (
+            <EmptyState icon={<Heart className="w-5 h-5" />} title={t.common.adminNoTrading} />
+          ) : savedLoading ? (
+            <TableSkeleton rows={4} cols={3} />
+          ) : savedError ? (
+            <EmptyState
+              title={t.common.somethingWentWrong}
+              action={<button className="btn-secondary" onClick={loadSavedProducts}>{t.common.tryAgain}</button>}
+            />
+          ) : savedProducts.length === 0 ? (
+            <EmptyState icon={<Heart className="w-5 h-5" />} title={t.buyer.savedEmpty} description={t.buyer.savedDesc} />
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+              {savedProducts.map(sp => (
+                <div key={sp.product_id} className="card p-5 flex flex-col">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="font-medium text-slate-900 truncate">{sp.name}</h3>
+                      {sp.sku && <p className="mt-0.5 text-xs text-slate-400">SKU: {sp.sku}</p>}
+                    </div>
+                    <span className="badge badge-neutral flex-shrink-0">{sp.category?.replace(/_/g, " ")}</span>
+                  </div>
+                  <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1.5 text-xs text-slate-500">
+                    {sp.moq != null && <span>{t.buyer.moqLabel}: {sp.moq}</span>}
+                    {sp.lead_time_days != null && <span>{t.buyer.leadTime}: {sp.lead_time_days}d</span>}
+                    {sp.certifications && <span>{t.buyer.certs}: {sp.certifications}</span>}
+                  </div>
+                  {sp.pricing && <p className="mt-2 text-xs text-slate-400 truncate">{sp.pricing}</p>}
+                  <div className="mt-4 pt-4 border-t border-slate-100">
+                    <button className="btn-secondary w-full" onClick={() => handleToggleSave(sp.product_id)}>
+                      <Heart className="w-4 h-4" />
+                      {t.buyer.unsave}
+                    </button>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </>

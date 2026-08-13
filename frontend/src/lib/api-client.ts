@@ -280,6 +280,13 @@ export async function register(email: string, password: string, name: string, co
   })
 }
 
+export async function updateProfile(data: { name?: string; phone?: string; country?: string }): Promise<AuthResponse> {
+  return await request<AuthResponse>("/api/auth/me", {
+    method: "PUT",
+    body: JSON.stringify(data),
+  })
+}
+
 // ── Admin ─────────────────────────────────────────────────────────
 
 interface SellerInfo {
@@ -373,6 +380,40 @@ export async function getSellerReceivedInquiries(page = 1, pageSize = 50): Promi
 
 export async function getBuyerInquiries(page = 1, pageSize = 20): Promise<PaginatedResult<BuyerInquiryItem>> {
   return await request(`/api/inquiries/buyer?page=${page}&page_size=${pageSize}`)
+}
+
+// ── Saved Products ──────────────────────────────────────────────
+
+export interface SavedProductItem {
+  product_id: number
+  name: string
+  sku: string | null
+  category: string
+  moq: number | null
+  unit_price: number | null
+  price_range_low: number | null
+  price_range_high: number | null
+  pricing: string | null
+  lead_time_days: number | null
+  certifications: string | null
+  technical_specs: string | null
+  created_at: string | null
+}
+
+export async function getSavedProducts(): Promise<SavedProductItem[]> {
+  const data = await request<{ items: SavedProductItem[] }>("/api/saved-products")
+  return data.items
+}
+
+export async function saveProduct(productId: number): Promise<void> {
+  await request("/api/saved-products", {
+    method: "POST",
+    body: JSON.stringify({ product_id: productId }),
+  })
+}
+
+export async function unsaveProduct(productId: number): Promise<void> {
+  await request(`/api/saved-products/${productId}`, { method: "DELETE" })
 }
 
 export async function generateSellerReply(inquiryId: number): Promise<{ subject: string; email_body: string }> {

@@ -23,6 +23,7 @@ const zhTW = {
     comingSoon: "敬請期待",
     copied: "已複製到剪貼簿",
     accountMismatch: "該帳號類型無法存取此入口，請使用正確的帳號登入。",
+    adminNoTrading: "管理員帳號無法參與交易活動。",
     loadMore: "載入更多",
   },
   sidebar: {
@@ -159,6 +160,11 @@ const zhTW = {
     replied: "已回覆",
     reply: "賣家回覆",
     request: "您的需求",
+    savedTitle: "收藏的商品",
+    savedEmpty: "暫無收藏的商品",
+    savedDesc: "在搜尋結果中收藏商品，方便以後查看。",
+    save: "收藏",
+    unsave: "取消收藏",
   },
   seller: {
     portalTitle: "賣家中心",
@@ -196,6 +202,9 @@ const zhTW = {
     buyer: "買家",
     received: "接收時間",
     aiGenerated: "AI 產生的回覆",
+    memberId: "會員 ID",
+    saveProfile: "儲存修改",
+    profileUpdated: "個人資料已更新。",
   },
   admin: {
     portalTitle: "管理面板",

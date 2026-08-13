@@ -6,8 +6,9 @@ import {
   LayoutDashboard, Package, Mail, User, Upload, Trash2, Search, FileText,
   Copy, Clock, CheckCircle2, Inbox,
 } from "lucide-react"
-import { isAuthenticated, isSeller, isAdmin, getUser, logout } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts } from "@/lib/api-client"
+import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile } from "@/lib/api-client"
+import { COUNTRIES } from "@/lib/countries"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -58,6 +59,11 @@ export default function SellerPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [inquiriesError, setInquiriesError] = useState(false)
   const [generatingId, setGeneratingId] = useState<number | null>(null)
+
+  const [profileName, setProfileName] = useState("")
+  const [profilePhone, setProfilePhone] = useState("")
+  const [profileCountry, setProfileCountry] = useState("CN")
+  const [savingProfile, setSavingProfile] = useState(false)
 
   const nav = [
     { key: "overview", label: t.nav.overview, icon: LayoutDashboard },
@@ -118,6 +124,33 @@ export default function SellerPage() {
       loadInquiries()
     }
   }, [tab, loadInquiries])
+
+  useEffect(() => {
+    if (tab === "profile" && user) {
+      setProfileName(user.name || "")
+      setProfilePhone(user.phone || "")
+      setProfileCountry(user.country || "CN")
+    }
+  }, [tab, user])
+
+  const handleSaveProfile = async () => {
+    setSavingProfile(true)
+    try {
+      const res = await updateProfile({ name: profileName, phone: profilePhone, country: profileCountry })
+      const token = getToken()
+      if (token) {
+        saveAuth(token, {
+          user_id: res.user_id, email: res.email, role: res.role, name: res.name,
+          country: res.country, phone: res.phone, uid: res.uid,
+        })
+      }
+      toast.push("success", t.seller.profileUpdated)
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setSavingProfile(false)
+    }
+  }
 
   const filtered = useMemo(() => {
     if (!search.trim()) return products
@@ -451,11 +484,46 @@ export default function SellerPage() {
       )}
 
       {tab === "profile" && (
-        <EmptyState
-          icon={<User className="w-5 h-5" />}
-          title={t.nav.profile}
-          description={t.common.comingSoon}
-        />
+        user?.role === "admin" ? (
+          <EmptyState icon={<User className="w-5 h-5" />} title={t.common.adminNoTrading} />
+        ) : (
+          <>
+            <header className="mb-6">
+              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.nav.profile}</h1>
+            </header>
+            <div className="card p-6 max-w-xl">
+              <div className="space-y-4">
+                <div>
+                  <label className="label">{t.auth.companyNameRequired}</label>
+                  <input className="input" value={profileName} onChange={e => setProfileName(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">{t.auth.email}</label>
+                  <input className="input bg-slate-50" value={user?.email || ""} disabled />
+                </div>
+                <div>
+                  <label className="label">{t.auth.phone}</label>
+                  <input className="input" value={profilePhone} onChange={e => setProfilePhone(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">{t.auth.country}</label>
+                  <select className="input" value={profileCountry} onChange={e => setProfileCountry(e.target.value)}>
+                    {COUNTRIES.map(c => (
+                      <option key={c.code} value={c.code}>{t.country[c.key as keyof typeof t.country]}</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">{t.seller.memberId}</label>
+                  <input className="input bg-slate-50" value={user?.uid || "—"} disabled />
+                </div>
+                <button className="btn-primary" onClick={handleSaveProfile} disabled={savingProfile}>
+                  {savingProfile ? t.common.loading : t.seller.saveProfile}
+                </button>
+              </div>
+            </div>
+          </>
+        )
       )}
 
       <ConfirmDialog

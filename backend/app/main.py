@@ -15,6 +15,7 @@ from app.api.dashboard import router as dashboard_router
 from app.api.auth import router as auth_router
 from app.api.seller_inquiries import router as seller_inquiries_router
 from app.api.admin import router as admin_router
+from app.api.saved_products import router as saved_products_router
 
 _worker_task: asyncio.Task | None = None
 
@@ -103,6 +104,7 @@ app.include_router(dashboard_router)
 app.include_router(auth_router)
 app.include_router(seller_inquiries_router)
 app.include_router(admin_router)
+app.include_router(saved_products_router)
 
 
 @app.get("/")

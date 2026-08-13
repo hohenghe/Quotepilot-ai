@@ -23,6 +23,7 @@ const zhCN = {
     comingSoon: "敬请期待",
     copied: "已复制到剪贴板",
     accountMismatch: "该账号类型无法访问此入口，请使用正确的账号登录。",
+    adminNoTrading: "管理员账户无法参与交易活动。",
     loadMore: "加载更多",
   },
   sidebar: {
@@ -159,6 +160,11 @@ const zhCN = {
     replied: "已回复",
     reply: "卖家回复",
     request: "您的需求",
+    savedTitle: "收藏的商品",
+    savedEmpty: "暂无收藏的商品",
+    savedDesc: "在搜索结果中收藏商品，方便以后查看。",
+    save: "收藏",
+    unsave: "取消收藏",
   },
   seller: {
     portalTitle: "卖家中心",
@@ -196,6 +202,9 @@ const zhCN = {
     buyer: "买家",
     received: "接收时间",
     aiGenerated: "AI 生成的回复",
+    memberId: "会员 ID",
+    saveProfile: "保存修改",
+    profileUpdated: "个人信息已更新。",
   },
   admin: {
     portalTitle: "管理面板",

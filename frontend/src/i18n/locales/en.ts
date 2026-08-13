@@ -23,6 +23,7 @@ const en = {
     comingSoon: "Coming soon",
     copied: "Copied to clipboard",
     accountMismatch: "This account type cannot access this portal. Please sign in with the correct account.",
+    adminNoTrading: "Admin accounts cannot participate in trading activities.",
     loadMore: "Load more",
   },
   sidebar: {
@@ -160,6 +161,11 @@ const en = {
     replied: "Replied",
     reply: "Seller reply",
     request: "Your request",
+    savedTitle: "Saved products",
+    savedEmpty: "No saved products yet",
+    savedDesc: "Save products from your search results to review them later.",
+    save: "Save",
+    unsave: "Remove from saved",
   },
   seller: {
     portalTitle: "Seller Portal",
@@ -197,6 +203,9 @@ const en = {
     buyer: "Buyer",
     received: "Received",
     aiGenerated: "AI-generated reply",
+    memberId: "Member ID",
+    saveProfile: "Save changes",
+    profileUpdated: "Profile updated successfully.",
   },
   admin: {
     portalTitle: "Admin Panel",

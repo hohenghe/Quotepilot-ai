@@ -72,7 +72,7 @@ async def upload_product_file(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_seller),
 ):
-    allowed_exts = {".pdf", ".xlsx", ".xls", ".docx", ".doc", ".csv"}
+    allowed_exts = {".pdf", ".xlsx", ".docx", ".csv"}
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in allowed_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")

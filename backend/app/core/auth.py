@@ -34,6 +34,12 @@ def require_seller(user: User = Depends(require_auth)):
     return user
 
 
+def require_buyer(user: User = Depends(require_auth)):
+    if user.role != "buyer":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Buyer access required")
+    return user
+
+
 def require_admin(user: User = Depends(require_auth)):
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")

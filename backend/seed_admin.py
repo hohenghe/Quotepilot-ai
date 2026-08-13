@@ -11,7 +11,8 @@ ADMIN_EMAIL = "1951444042@qq.com"
 ADMIN_PASSWORD = "admin1234"
 
 TEST_ACCOUNTS = [
-    {"email": "test@test.com", "password": "test1234", "role": "seller", "name": "Test Seller", "country": "CN"},
+    {"email": "test@test.com", "password": "test1234", "role": "buyer", "name": "Test Buyer", "country": "CN"},
+    {"email": "seller@test.com", "password": "test1234", "role": "seller", "name": "Test Seller", "country": "CN"},
     {"email": "admin@test.com", "password": "test1234", "role": "admin", "name": "Test Admin", "country": "CN"},
 ]
 
@@ -42,7 +43,12 @@ async def create_test_accounts():
             result = await db.execute(
                 select(User).where(User.email == acc["email"])
             )
-            if result.scalar_one_or_none():
+            existing = result.scalar_one_or_none()
+            if existing:
+                if existing.role != acc["role"] or existing.name != acc["name"]:
+                    existing.role = acc["role"]
+                    existing.name = acc["name"]
+                    logger.warning("Test account updated: %s -> %s", acc["email"], acc["role"])
                 continue
             db.add(User(
                 email=acc["email"],

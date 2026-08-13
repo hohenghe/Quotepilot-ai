@@ -16,6 +16,7 @@ class RegisterRequest(BaseModel):
     name: str | None = None
     country: str
     phone: str | None = None
+    role: str = "buyer"
 
 
 class LoginRequest(BaseModel):
@@ -38,6 +39,9 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if len(data.password) < 6:
         raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
 
+    if data.role not in ("buyer", "seller"):
+        raise HTTPException(status_code=400, detail="Invalid role")
+
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
         raise HTTPException(status_code=400, detail="Email already registered")
@@ -45,7 +49,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     user = User(
         email=data.email,
         password_hash=hash_password(data.password),
-        role="seller",
+        role=data.role,
         name=data.name,
         country=data.country,
         phone=data.phone,

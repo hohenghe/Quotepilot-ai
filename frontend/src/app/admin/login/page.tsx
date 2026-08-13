@@ -18,10 +18,10 @@ export default function AdminLoginPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await login(data.email, data.password)
+      const res = await login(data.email, data.password, "admin")
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        country: res.country, phone: res.phone,
+        country: res.country, phone: res.phone, uid: res.uid,
       })
       router.push("/admin")
     } catch (e: any) {
@@ -34,6 +34,7 @@ export default function AdminLoginPage() {
   return (
     <AuthForm
       mode="login"
+      role="admin"
       onSubmit={handleAuth}
       onToggleMode={() => {}}
       loading={loading}

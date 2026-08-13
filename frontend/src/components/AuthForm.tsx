@@ -8,6 +8,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher"
 
 interface Props {
   mode: "login" | "register"
+  role: "buyer" | "seller" | "admin"
   onSubmit: (data: AuthFormData) => Promise<void>
   onToggleMode: () => void
   loading: boolean
@@ -23,7 +24,7 @@ export interface AuthFormData {
   phone: string
 }
 
-export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error, title }: Props) {
+export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, error, title }: Props) {
   const { t } = useT()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
@@ -36,13 +37,26 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
 
   const handleSubmit = async () => {
     setLocalError(null)
+    if (mode === "login") {
+      if (!email || !password) return
+      await onSubmit({ email, password, name, country, phone })
+      return
+    }
     if (!email || !password) return
-    if (mode === "register" && password !== confirmPassword) {
+    if (password !== confirmPassword) {
       setLocalError(t.auth.passwordMismatch)
       return
     }
-    if (mode === "register" && password.length < 6) {
-      setLocalError("Password must be at least 6 characters")
+    if (password.length < 6) {
+      setLocalError(t.auth.passwordTooShort)
+      return
+    }
+    if (!phone.trim()) {
+      setLocalError(t.auth.phoneRequired)
+      return
+    }
+    if (role === "seller" && !name.trim()) {
+      setLocalError(t.auth.companyRequired)
       return
     }
     await onSubmit({ email, password, name, country, phone })
@@ -57,8 +71,8 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
       </div>
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4">
         <div className="text-center mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">{title}</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
+          <p className="text-sm text-slate-500 mt-1">
             {mode === "register" ? t.auth.createAccount : t.auth.signIn}
           </p>
         </div>
@@ -71,7 +85,7 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
 
         {mode === "register" && (
           <div className="mb-4">
-            <label className="label">{t.auth.companyName}</label>
+            <label className="label">{role === "seller" ? t.auth.companyNameRequired : t.auth.companyNameOptional}</label>
             <input
               className="input-field"
               value={name}
@@ -82,13 +96,13 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
         )}
 
         <div className="mb-4">
-          <label className="label">{t.auth.email}</label>
+          <label className="label">{mode === "register" ? t.auth.email : t.auth.identifier}</label>
           <input
             className="input-field"
-            type="email"
+            type={mode === "register" ? "email" : "text"}
             value={email}
             onChange={e => setEmail(e.target.value)}
-            placeholder="you@company.com"
+            placeholder={mode === "register" ? "you@company.com" : t.auth.identifier}
             required
           />
         </div>
@@ -118,6 +132,7 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
                 value={phone}
                 onChange={e => setPhone(e.target.value)}
                 placeholder="+86 138xxxx"
+                required
               />
             </div>
           </>
@@ -136,9 +151,10 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
             />
             <button
               type="button"
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600"
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
               onClick={() => setShowPassword(!showPassword)}
               tabIndex={-1}
+              aria-label={showPassword ? t.auth.hidePassword : t.auth.showPassword}
             >
               {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
@@ -182,12 +198,14 @@ export default function AuthForm({ mode, onSubmit, onToggleMode, loading, error,
             : (mode === "register" ? t.auth.createAccount : t.auth.signIn)}
         </button>
 
-        <button
-          className="w-full text-center text-sm text-brand-600 hover:text-brand-700 mt-4"
-          onClick={onToggleMode}
-        >
-          {mode === "register" ? t.auth.haveAccount : t.auth.noAccount} {mode === "register" ? t.auth.signIn : t.auth.createAccount}
-        </button>
+        {role !== "admin" && (
+          <button
+            className="w-full text-center text-sm text-brand-600 hover:text-brand-700 mt-4"
+            onClick={onToggleMode}
+          >
+            {mode === "register" ? t.auth.haveAccount : t.auth.noAccount} {mode === "register" ? t.auth.signIn : t.auth.createAccount}
+          </button>
+        )}
       </div>
     </div>
   )

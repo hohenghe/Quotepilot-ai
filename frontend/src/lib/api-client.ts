@@ -263,19 +263,20 @@ interface AuthResponse {
   name: string | null
   country: string | null
   phone: string | null
+  uid: string | null
 }
 
-export async function login(email: string, password: string): Promise<AuthResponse> {
+export async function login(identifier: string, password: string, role?: string): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ email, password }),
+    body: JSON.stringify({ identifier, password, role: role || null }),
   })
 }
 
-export async function register(email: string, password: string, name: string, country: string, phone?: string, role: "buyer" | "seller" = "buyer"): Promise<AuthResponse> {
+export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer"): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name, country, phone: phone || null, role }),
+    body: JSON.stringify({ email, password, name, country, phone, role }),
   })
 }
 
@@ -320,6 +321,10 @@ export async function adminListInquiries(
     `/api/inquiries/admin/all?page=${page}&page_size=20`
   )
   return { total: data.total, items: data.items.map(adaptInquiry) }
+}
+
+export async function adminResetAll(): Promise<void> {
+  await request("/api/admin/reset", { method: "DELETE" })
 }
 
 // ── Seller Inquiries ──────────────────────────────────────────────

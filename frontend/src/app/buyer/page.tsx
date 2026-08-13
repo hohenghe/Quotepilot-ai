@@ -57,10 +57,10 @@ export default function BuyerPage() {
     try {
       const res = authMode === "register"
         ? await register(data.email, data.password, data.name, data.country, data.phone, "buyer")
-        : await login(data.email, data.password)
+        : await login(data.email, data.password, "buyer")
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        country: res.country || data.country, phone: res.phone || data.phone,
+        country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
     } catch (e: any) {
       setAuthError(e.message || "Authentication failed")
@@ -147,6 +147,7 @@ export default function BuyerPage() {
     return (
       <AuthForm
         mode={authMode}
+        role="buyer"
         onSubmit={handleAuth}
         onToggleMode={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(null) }}
         loading={authLoading}
@@ -156,7 +157,7 @@ export default function BuyerPage() {
     )
   }
 
-  if (user.role !== "buyer") {
+  if (user.role !== "buyer" && user.role !== "admin") {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-sm text-center">

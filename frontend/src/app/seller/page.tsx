@@ -6,7 +6,7 @@ import {
   LayoutDashboard, Package, Mail, User, Upload, Trash2, Search, FileText,
   Copy, Clock, CheckCircle2, Inbox,
 } from "lucide-react"
-import { isAuthenticated, isSeller, getUser, logout } from "@/lib/auth"
+import { isAuthenticated, isSeller, isAdmin, getUser, logout } from "@/lib/auth"
 import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
@@ -29,7 +29,7 @@ export default function SellerPage() {
 
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => {
-    if (!isAuthenticated() || !isSeller()) {
+    if (!isAuthenticated() || (!isSeller() && !isAdmin())) {
       router.push("/seller/login")
       return
     }
@@ -110,11 +110,11 @@ export default function SellerPage() {
   }
 
   useEffect(() => {
-    if (isAuthenticated() && isSeller()) loadProducts()
+    if (isAuthenticated() && (isSeller() || isAdmin())) loadProducts()
   }, [loadProducts])
 
   useEffect(() => {
-    if (isAuthenticated() && isSeller() && (tab === "inquiries" || tab === "overview")) {
+    if (isAuthenticated() && (isSeller() || isAdmin()) && (tab === "inquiries" || tab === "overview")) {
       loadInquiries()
     }
   }, [tab, loadInquiries])

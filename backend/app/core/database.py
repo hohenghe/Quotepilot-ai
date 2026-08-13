@@ -26,12 +26,13 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
     return {
         "users": [
             ("id", "BIGSERIAL PRIMARY KEY", None),
-            ("email", "TEXT NOT NULL UNIQUE", None),
+            ("email", "TEXT NOT NULL", None),
             ("password_hash", "TEXT NOT NULL", None),
             ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
             ("name", "TEXT", None),
             ("country", "TEXT NOT NULL DEFAULT 'CN'", None),
             ("phone", "TEXT", None),
+            ("uid", "TEXT", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
@@ -183,6 +184,30 @@ async def init_db():
             await conn.execute(text(
                 "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key"
             ))
+        except Exception:
+            pass
+
+        # Users: allow the same email across roles (buyer + seller)
+        try:
+            await conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS uq_users_email"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("DROP INDEX IF EXISTS ix_users_email"))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_role ON users (email, role)"
+            ))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_email ON users (email)"))
         except Exception:
             pass
 

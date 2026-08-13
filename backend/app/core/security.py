@@ -1,6 +1,7 @@
 import hashlib
 import hmac
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 import jwt
 from app.core.config import settings
@@ -8,6 +9,10 @@ from app.core.config import settings
 SECRET_KEY = settings.JWT_SECRET_KEY
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_HOURS = 24
+
+
+def generate_uid() -> str:
+    return uuid.uuid4().hex[:12].upper()
 
 
 def hash_password(password: str) -> str:

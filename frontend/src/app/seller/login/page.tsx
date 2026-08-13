@@ -21,15 +21,15 @@ export default function SellerLoginPage() {
     try {
       const res = mode === "register"
         ? await register(data.email, data.password, data.name, data.country, data.phone, "seller")
-        : await login(data.email, data.password)
-      if (res.role !== "seller") {
+        : await login(data.email, data.password, "seller")
+      if (res.role !== "seller" && res.role !== "admin") {
         logout()
         setError(t.common.accountMismatch)
         return
       }
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        country: res.country || data.country, phone: res.phone || data.phone,
+        country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
       router.push("/seller")
     } catch (e: any) {
@@ -42,6 +42,7 @@ export default function SellerLoginPage() {
   return (
     <AuthForm
       mode={mode}
+      role="seller"
       onSubmit={handleAuth}
       onToggleMode={() => { setMode(mode === "login" ? "register" : "login"); setError(null) }}
       loading={loading}

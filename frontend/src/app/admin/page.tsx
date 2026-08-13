@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
-import { adminGetDashboard, adminListSellers, adminListProducts, adminListInquiries, deleteProducts } from "@/lib/api-client"
+import { adminGetDashboard, adminListSellers, adminListProducts, adminListInquiries, deleteProducts, adminResetAll } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -60,6 +60,8 @@ export default function AdminPage() {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
+  const [confirmResetOpen, setConfirmResetOpen] = useState(false)
+  const [resetting, setResetting] = useState(false)
   const [inquiries, setInquiries] = useState<Inquiry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -150,6 +152,24 @@ export default function AdminPage() {
     }
   }
 
+  const handleResetAll = async () => {
+    setResetting(true)
+    try {
+      await adminResetAll()
+      toast.push("success", t.admin.resetSuccess)
+      await loadAll()
+      setProducts([])
+      setProductsTotal(0)
+      setProductsPage(1)
+      setSelectedIds(new Set())
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setResetting(false)
+      setConfirmResetOpen(false)
+    }
+  }
+
   const maxCategory = Math.max(1, ...Object.values(stats?.categories || {}).map(Number))
 
   if (!authReady) {
@@ -217,6 +237,15 @@ export default function AdminPage() {
               )}
             </>
           )}
+
+          <div className="card p-6 mt-6 border-red-200">
+            <h2 className="text-base font-semibold text-red-700">{t.admin.dangerZone}</h2>
+            <p className="mt-1 text-sm text-slate-500">{t.admin.deleteAllDesc}</p>
+            <button className="btn-danger mt-4" onClick={() => setConfirmResetOpen(true)}>
+              <Trash2 className="w-4 h-4" />
+              {t.admin.deleteAll}
+            </button>
+          </div>
         </>
       )}
 
@@ -432,6 +461,17 @@ export default function AdminPage() {
         loading={deleting}
         onConfirm={handleDeleteSelected}
         onCancel={() => setConfirmDeleteOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmResetOpen}
+        title={t.admin.deleteAllTitle}
+        description={t.admin.deleteAllDesc}
+        confirmLabel={t.admin.deleteAll}
+        cancelLabel={t.common.cancel}
+        loading={resetting}
+        onConfirm={handleResetAll}
+        onCancel={() => setConfirmResetOpen(false)}
       />
     </DashboardShell>
   )

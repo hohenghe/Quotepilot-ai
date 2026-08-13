@@ -3,14 +3,12 @@
 import { useEffect, useState } from "react"
 import { Menu } from "lucide-react"
 import Sidebar from "@/components/Sidebar"
-import { initStore } from "@/lib/store"
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    initStore()
     setMounted(true)
   }, [])
 

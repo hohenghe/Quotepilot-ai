@@ -1,5 +1,4 @@
 import os
-import uuid
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
@@ -12,11 +11,9 @@ from app.models.document import Document
 from app.models.user import User
 from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductListResponse, DocumentResponse
 from app.services.file_parser import parse_file
+from app.services.storage import get_storage
 
 router = APIRouter(prefix="/api/products", tags=["products"])
-
-UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
-os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 
 def _scope_by_seller(query, user: User):
@@ -80,18 +77,13 @@ async def upload_product_file(
     if ext not in allowed_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    file_id = uuid.uuid4().hex[:12]
-    safe_name = f"{file_id}_{file.filename}"
-    file_path = os.path.join(UPLOAD_DIR, safe_name)
-
     content = await file.read()
-    with open(file_path, "wb") as f:
-        f.write(content)
+    storage_key = await get_storage().save(file.filename or "", content)
 
     doc = Document(
         filename=file.filename,
         file_type=ext[1:],
-        file_path=file_path,
+        file_path=storage_key,
         status="processing",
     )
     db.add(doc)

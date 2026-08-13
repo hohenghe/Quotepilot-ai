@@ -19,6 +19,19 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
 
+    # File storage backend: "local" (default) or "r2"
+    STORAGE_BACKEND: str = "local"
+    # Optional override for the local upload directory (defaults to <backend>/uploads)
+    STORAGE_LOCAL_DIR: str = ""
+
+    # Cloudflare R2 (S3-compatible) settings. Only used when STORAGE_BACKEND=r2.
+    R2_ACCOUNT_ID: str = ""
+    R2_ACCESS_KEY_ID: str = ""
+    R2_SECRET_ACCESS_KEY: str = ""
+    R2_BUCKET: str = ""
+    R2_ENDPOINT_URL: str = ""
+    R2_STORAGE_PREFIX: str = "documents"
+
     class Config:
         env_file = ".env"
         extra = "allow"

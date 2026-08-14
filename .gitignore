@@ -8,3 +8,4 @@ __pycache__/
 *.tsbuildinfo
 uploads/
 .cache/
+backend/sample_data/

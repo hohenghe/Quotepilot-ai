@@ -34,6 +34,8 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("country", "TEXT NOT NULL DEFAULT 'CN'", None),
             ("phone", "TEXT", None),
             ("uid", "TEXT", None),
+            ("email_verified_at", "TIMESTAMPTZ", None),
+            ("auth_version", "INTEGER NOT NULL DEFAULT 0", None),
             ("is_active", "BOOLEAN DEFAULT TRUE", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
@@ -136,6 +138,15 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("reported", "BOOLEAN DEFAULT FALSE", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
+        "auth_tokens": [
+            ("id", "BIGSERIAL PRIMARY KEY", None),
+            ("user_id", "INTEGER NOT NULL", "users(id) ON DELETE CASCADE"),
+            ("token_hash", "TEXT NOT NULL", None),
+            ("token_type", "TEXT NOT NULL", None),
+            ("expires_at", "TIMESTAMPTZ NOT NULL", None),
+            ("used_at", "TIMESTAMPTZ", None),
+            ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+        ],
     }
 
 
@@ -193,9 +204,19 @@ async def init_db():
     from app.models.seller_inquiry import SellerInquiry
     from app.models.saved_product import SavedProduct
     from app.models.review import Review
+    from app.models.auth_token import AuthToken
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
+
+        # Detect whether email_verified_at already exists before _sync_columns,
+        # so we can backfill pre-existing accounts exactly once.
+        ev_result = await conn.execute(text(
+            "SELECT EXISTS (SELECT FROM information_schema.columns "
+            "WHERE table_name = 'users' AND column_name = 'email_verified_at')"
+        ))
+        email_verified_existed = ev_result.scalar()
+
         await conn.run_sync(Base.metadata.create_all)
         await _sync_columns(conn)
         await _migrate_embedding_dimension(conn)
@@ -244,6 +265,17 @@ async def init_db():
             await conn.execute(text("ALTER TABLE reviews DROP COLUMN IF EXISTS product_id"))
         except Exception:
             pass
+
+        # Email verification: mark accounts that existed before the feature as
+        # verified (runs only on the first deploy that introduces the column).
+        if not email_verified_existed:
+            try:
+                await conn.execute(text(
+                    "UPDATE users SET email_verified_at = COALESCE(created_at, NOW()) "
+                    "WHERE email_verified_at IS NULL"
+                ))
+            except Exception:
+                pass
 
 
 async def _migrate_embedding_dimension(conn):

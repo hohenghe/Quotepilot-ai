@@ -13,7 +13,7 @@ import ReviewModal from "@/components/ReviewModal"
 import SellerModal from "@/components/SellerModal"
 import { TableSkeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
-import type { AuthFormData } from "@/components/AuthForm"
+import type { AuthFormData, AuthSubmitResult } from "@/components/AuthForm"
 import type { FullAnalysisResult, BuyerInquiryItem, SavedProductItem } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 
@@ -60,13 +60,15 @@ export default function BuyerPage() {
     { key: "profile", label: t.nav.profile, icon: User },
   ]
 
-  const handleAuth = async (data: AuthFormData) => {
+  const handleAuth = async (data: AuthFormData): Promise<AuthSubmitResult> => {
     setAuthLoading(true)
     setAuthError(null)
     try {
-      const res = authMode === "register"
-        ? await register(data.email, data.password, data.name, data.country, data.phone, "buyer")
-        : await login(data.email, data.password, "buyer")
+      if (authMode === "register") {
+        await register(data.email, data.password, data.name, data.country, data.phone, "buyer")
+        return { type: "registered", email: data.email }
+      }
+      const res = await login(data.email, data.password, "buyer")
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
         store_name: res.store_name, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,

@@ -1,5 +1,6 @@
 import asyncio
 import logging
+from datetime import datetime, timezone
 from app.core.database import async_session
 from app.models.user import User
 from app.core.security import hash_password
@@ -22,7 +23,11 @@ async def create_admin():
         result = await db.execute(
             select(User).where(User.email == ADMIN_EMAIL, User.role == "admin")
         )
-        if result.scalar_one_or_none():
+        existing = result.scalar_one_or_none()
+        if existing:
+            if existing.email_verified_at is None:
+                existing.email_verified_at = datetime.now(timezone.utc)
+                await db.commit()
             return
 
         admin = User(
@@ -31,6 +36,7 @@ async def create_admin():
             role="admin",
             name="Administrator",
             country="CN",
+            email_verified_at=datetime.now(timezone.utc),
         )
         db.add(admin)
         await db.commit()
@@ -55,6 +61,9 @@ async def create_test_accounts():
                 if acc.get("uid") and existing.uid != acc["uid"]:
                     existing.uid = acc["uid"]
                     changed = True
+                if existing.email_verified_at is None:
+                    existing.email_verified_at = datetime.now(timezone.utc)
+                    changed = True
                 if changed:
                     logger.warning("Test account updated: %s (%s)", acc["email"], acc["role"])
                 continue
@@ -66,6 +75,7 @@ async def create_test_accounts():
                 country=acc["country"],
                 phone=acc.get("phone"),
                 uid=acc.get("uid"),
+                email_verified_at=datetime.now(timezone.utc),
             ))
             logger.warning("Test account created: %s (%s)", acc["email"], acc["role"])
         await db.commit()

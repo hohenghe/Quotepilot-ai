@@ -19,7 +19,13 @@ async def get_current_user(
     if not payload:
         return None
     result = await db.execute(select(User).where(User.id == int(payload["sub"])))
-    return result.scalar_one_or_none()
+    user = result.scalar_one_or_none()
+    if not user:
+        return None
+    # Reject tokens issued before a password reset (auth_version bump).
+    if payload.get("ver", 0) != (user.auth_version or 0):
+        return None
+    return user
 
 
 def require_auth(user: User | None = Depends(get_current_user)):

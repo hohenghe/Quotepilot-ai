@@ -15,6 +15,16 @@ def generate_uid() -> str:
     return uuid.uuid4().hex[:12].upper()
 
 
+def generate_token() -> str:
+    """Generate a cryptographically secure one-time token (URL-safe)."""
+    return secrets.token_urlsafe(32)
+
+
+def hash_token(token: str) -> str:
+    """Hash a token for storage. Only the hash is persisted, never the raw token."""
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
 def hash_password(password: str) -> str:
     salt = secrets.token_hex(16)
     h = hmac.new(salt.encode(), password.encode(), hashlib.sha256)
@@ -30,10 +40,11 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int, role: str) -> str:
+def create_access_token(user_id: int, role: str, auth_version: int = 0) -> str:
     payload = {
         "sub": str(user_id),
         "role": role,
+        "ver": auth_version,
         "exp": datetime.now(timezone.utc) + timedelta(hours=ACCESS_TOKEN_EXPIRE_HOURS),
     }
     return jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)

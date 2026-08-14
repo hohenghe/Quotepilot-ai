@@ -285,11 +285,12 @@ export async function login(identifier: string, password: string, role?: string)
   })
 }
 
-export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer"): Promise<AuthResponse> {
-  return await request<AuthResponse>("/api/auth/register", {
+export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer"): Promise<{ ok: boolean; message: string }> {
+  const data = await request<{ success: boolean; message: string }>("/api/auth/register", {
     method: "POST",
     body: JSON.stringify({ email, password, name, country, phone, role }),
   })
+  return { ok: !!data.success, message: data.message || "" }
 }
 
 export async function updateProfile(data: { name?: string; store_name?: string; phone?: string; country?: string }): Promise<AuthResponse> {
@@ -297,6 +298,54 @@ export async function updateProfile(data: { name?: string; store_name?: string; 
     method: "PUT",
     body: JSON.stringify(data),
   })
+}
+
+// ── Email verification & password reset ─────────────────────────
+
+export interface AuthResult {
+  success: boolean
+  message: string
+  status: number
+}
+
+function extractDetail(e: unknown): string {
+  const msg = e instanceof Error ? e.message : String(e)
+  const match = msg.match(/"detail"\s*:\s*"((?:[^"\\]|\\.)*)"/)
+  return match ? match[1] : msg
+}
+
+async function postAuth(path: string, body: unknown): Promise<AuthResult> {
+  try {
+    const data = await request<{ success: boolean; message: string }>(path, {
+      method: "POST",
+      body: JSON.stringify(body),
+    })
+    return { success: data.success !== false, message: data.message || "", status: 200 }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    const statusMatch = msg.match(/^API error (\d+):/)
+    return {
+      success: false,
+      message: extractDetail(e),
+      status: statusMatch ? Number(statusMatch[1]) : 0,
+    }
+  }
+}
+
+export async function verifyEmail(token: string): Promise<AuthResult> {
+  return await postAuth("/api/auth/verify-email", { token })
+}
+
+export async function resendVerification(email: string): Promise<AuthResult> {
+  return await postAuth("/api/auth/resend-verification", { email })
+}
+
+export async function forgotPassword(email: string): Promise<AuthResult> {
+  return await postAuth("/api/auth/forgot-password", { email })
+}
+
+export async function resetPassword(token: string, newPassword: string): Promise<AuthResult> {
+  return await postAuth("/api/auth/reset-password", { token, new_password: newPassword })
 }
 
 // ── Admin ─────────────────────────────────────────────────────────

@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation"
 import { login, register } from "@/lib/api-client"
 import { saveAuth, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
-import type { AuthFormData } from "@/components/AuthForm"
+import type { AuthFormData, AuthSubmitResult } from "@/components/AuthForm"
 import { useT } from "@/i18n/I18nProvider"
 
 export default function SellerLoginPage() {
@@ -15,13 +15,15 @@ export default function SellerLoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  const handleAuth = async (data: AuthFormData) => {
+  const handleAuth = async (data: AuthFormData): Promise<AuthSubmitResult> => {
     setLoading(true)
     setError(null)
     try {
-      const res = mode === "register"
-        ? await register(data.email, data.password, data.name, data.country, data.phone, "seller")
-        : await login(data.email, data.password, "seller")
+      if (mode === "register") {
+        await register(data.email, data.password, data.name, data.country, data.phone, "seller")
+        return { type: "registered", email: data.email }
+      }
+      const res = await login(data.email, data.password, "seller")
       if (res.role !== "seller" && res.role !== "admin") {
         logout()
         setError(t.common.accountMismatch)

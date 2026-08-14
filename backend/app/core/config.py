@@ -19,6 +19,12 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
 
+    # Email (Brevo Transactional Email API)
+    BREVO_API_KEY: str = ""
+    MAIL_FROM_EMAIL: str = "noreply@zhermai.com"
+    MAIL_FROM_NAME: str = "QuotePilot"
+    FRONTEND_URL: str = "http://localhost:3000"
+
     # File storage backend: "local" (default) or "r2"
     STORAGE_BACKEND: str = "local"
     # Optional override for the local upload directory (defaults to <backend>/uploads)

@@ -1,21 +1,12 @@
 "use client"
 
 import { useState } from "react"
-import { Eye, EyeOff } from "lucide-react"
+import { Eye, EyeOff, MailCheck } from "lucide-react"
 import Link from "next/link"
 import { COUNTRIES } from "@/lib/countries"
+import { resendVerification } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
-
-interface Props {
-  mode: "login" | "register"
-  role: "buyer" | "seller" | "admin"
-  onSubmit: (data: AuthFormData) => Promise<void>
-  onToggleMode: () => void
-  loading: boolean
-  error: string | null
-  title: string
-}
 
 export interface AuthFormData {
   email: string
@@ -23,6 +14,18 @@ export interface AuthFormData {
   name: string
   country: string
   phone: string
+}
+
+export type AuthSubmitResult = void | { type: "registered"; email: string }
+
+interface Props {
+  mode: "login" | "register"
+  role: "buyer" | "seller" | "admin"
+  onSubmit: (data: AuthFormData) => Promise<AuthSubmitResult>
+  onToggleMode: () => void
+  loading: boolean
+  error: string | null
+  title: string
 }
 
 export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, error, title }: Props) {
@@ -35,6 +38,10 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   const [phone, setPhone] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+
+  const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
+  const [resending, setResending] = useState(false)
+  const [resendMessage, setResendMessage] = useState<string | null>(null)
 
   const handleSubmit = async () => {
     setLocalError(null)
@@ -60,10 +67,60 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
       setLocalError(t.auth.companyRequired)
       return
     }
-    await onSubmit({ email, password, name, country, phone })
+    const result = await onSubmit({ email, password, name, country, phone })
+    if (result && result.type === "registered") {
+      setRegisteredEmail(result.email)
+    }
+  }
+
+  const handleResend = async () => {
+    if (!registeredEmail) return
+    setResending(true)
+    setResendMessage(null)
+    try {
+      const res = await resendVerification(registeredEmail)
+      setResendMessage(res.success ? t.auth.resendSent : res.message)
+    } catch {
+      setResendMessage(t.common.somethingWentWrong)
+    } finally {
+      setResending(false)
+    }
   }
 
   const displayError = localError || error
+
+  if (registeredEmail) {
+    return (
+      <div className="min-h-screen bg-slate-50 flex items-center justify-center py-10 relative">
+        <div className="absolute top-4 right-4 z-50">
+          <LanguageSwitcher />
+        </div>
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4 text-center">
+          <div className="mx-auto w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center mb-4">
+            <MailCheck className="w-6 h-6" />
+          </div>
+          <h1 className="text-xl font-bold text-slate-900">{t.auth.verifyPrompt}</h1>
+          <p className="text-sm text-slate-500 mt-2">{registeredEmail}</p>
+
+          {resendMessage && <p className="text-sm text-slate-600 mt-3">{resendMessage}</p>}
+
+          <button
+            className="btn-primary w-full justify-center mt-6"
+            onClick={handleResend}
+            disabled={resending}
+          >
+            {resending ? t.common.loading : t.auth.resendVerification}
+          </button>
+          <button
+            className="w-full text-center text-sm text-brand-600 hover:text-brand-700 mt-4"
+            onClick={() => { setRegisteredEmail(null); setResendMessage(null) }}
+          >
+            {t.auth.goToLogin}
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center py-10 relative">
@@ -207,6 +264,15 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
             ? (mode === "register" ? t.auth.registering : t.auth.signingIn)
             : (mode === "register" ? t.auth.createAccount : t.auth.signIn)}
         </button>
+
+        {mode === "login" && (
+          <Link
+            href="/forgot-password"
+            className="block text-center text-sm text-slate-500 hover:text-slate-700 mt-4"
+          >
+            {t.auth.forgotPassword}
+          </Link>
+        )}
 
         {role !== "admin" && (
           <button

@@ -16,5 +16,7 @@ class User(Base):
     country = Column(String(100), nullable=False, default="CN")
     phone = Column(String(50), nullable=True)
     uid = Column(String(32), nullable=True, unique=True, index=True)
+    email_verified_at = Column(DateTime(timezone=True), nullable=True)
+    auth_version = Column(Integer, default=0, nullable=False)
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

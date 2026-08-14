@@ -1,0 +1,62 @@
+[
+  {
+    "type": "A_zh_query_zh_product",
+    "query": "我需要750ml的不锈钢真空保温杯，用于户外运动。",
+    "expected_product": "304不锈钢真空保温杯750ml"
+  },
+  {
+    "type": "A_zh_query_zh_product",
+    "query": "采购E27螺口的LED玉米灯，15瓦。",
+    "expected_product": "LED玉米灯E27 15W"
+  },
+  {
+    "type": "A_zh_query_zh_product",
+    "query": "我要五层瓦楞纸箱用于出口包装。",
+    "expected_product": "五层瓦楞纸箱"
+  },
+  {
+    "type": "A_zh_query_zh_product",
+    "query": "找陶瓷配方的汽车刹车片。",
+    "expected_product": "陶瓷配方汽车刹车片"
+  },
+  {
+    "type": "B_en_query_zh_product",
+    "query": "I need 750ml stainless steel vacuum insulated bottles for outdoor use.",
+    "expected_product": "304不锈钢真空保温杯750ml"
+  },
+  {
+    "type": "B_en_query_zh_product",
+    "query": "Looking for E27 corn LED bulbs, 15 watts.",
+    "expected_product": "LED玉米灯E27 15W"
+  },
+  {
+    "type": "B_en_query_zh_product",
+    "query": "We need five-layer corrugated cartons for export packaging.",
+    "expected_product": "五层瓦楞纸箱"
+  },
+  {
+    "type": "B_en_query_zh_product",
+    "query": "Sourcing ceramic formula brake pads for cars.",
+    "expected_product": "陶瓷配方汽车刹车片"
+  },
+  {
+    "type": "C_en_translated_zh_product",
+    "query": "我需要750毫升的不锈钢真空保温瓶，用于户外活动。",
+    "expected_product": "304不锈钢真空保温杯750ml"
+  },
+  {
+    "type": "C_en_translated_zh_product",
+    "query": "寻找E27接口的LED玉米灯泡，功率15瓦。",
+    "expected_product": "LED玉米灯E27 15W"
+  },
+  {
+    "type": "C_en_translated_zh_product",
+    "query": "我们需要五层瓦楞纸板箱，用于出口包装。",
+    "expected_product": "五层瓦楞纸箱"
+  },
+  {
+    "type": "C_en_translated_zh_product",
+    "query": "采购陶瓷刹车片，用于汽车。",
+    "expected_product": "陶瓷配方汽车刹车片"
+  }
+]

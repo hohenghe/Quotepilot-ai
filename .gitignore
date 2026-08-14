@@ -7,5 +7,3 @@ __pycache__/
 .env.local
 *.tsbuildinfo
 uploads/
-.cache/
-backend/sample_data/

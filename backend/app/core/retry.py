@@ -21,15 +21,10 @@ class FatalEmbeddingError(RuntimeError):
 
 async def embedding_api_call_with_retry(
     inputs: list[str],
-    text_type: str | None = None,
 ) -> list[list[float]]:
     key = settings.EMBEDDING_API_KEY or settings.OPENAI_API_KEY
     url = settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL
     max_retries = settings.EMBEDDING_MAX_RETRIES
-
-    payload: dict[str, Any] = {"model": settings.EMBEDDING_MODEL, "input": inputs}
-    if text_type:
-        payload["text_type"] = text_type
 
     last_error = None
     for attempt in range(max_retries + 1):
@@ -41,7 +36,7 @@ async def embedding_api_call_with_retry(
                         "Content-Type": "application/json",
                         "Authorization": f"Bearer {key}",
                     },
-                    json=payload,
+                    json={"model": settings.EMBEDDING_MODEL, "input": inputs},
                 )
 
             if resp.status_code == 200:

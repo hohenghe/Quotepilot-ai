@@ -122,12 +122,7 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
     await db.refresh(analysis)
     inquiry.analyses = [analysis]
 
-    # New: pgvector-based hybrid search.
-    # NOTE: search uses the buyer's ORIGINAL message (no translation) so that
-    # text-embedding-v4 maps the buyer's language directly onto the seller's
-    # original (often Chinese) product text — multilingual retrieval. The
-    # translation done inside analyze_inquiry() is only for LLM structured
-    # analysis, never for embedding.
+    # New: pgvector-based hybrid search
     try:
         match_results = await search_products_hybrid(db, request.raw_message, top_k=5)
     except Exception as e:

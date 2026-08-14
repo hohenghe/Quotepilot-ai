@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from typing import Optional
 from datetime import datetime
 
@@ -17,6 +17,7 @@ class ProductCreate(BaseModel):
     pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
+    images: list[str] = []
 
 
 class ProductUpdate(BaseModel):
@@ -33,6 +34,7 @@ class ProductUpdate(BaseModel):
     pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
+    images: Optional[list[str]] = None
     is_active: Optional[bool] = None
 
 
@@ -51,12 +53,18 @@ class ProductResponse(BaseModel):
     pricing: Optional[str] = None
     lead_time_days: Optional[int] = None
     image_url: Optional[str] = None
+    images: list[str] = []
     is_active: bool
     view_count: int = 0
     favorite_count: int = 0
     created_at: Optional[datetime] = None
     seller_name: Optional[str] = None
     seller_email: Optional[str] = None
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def _coerce_images(cls, v):
+        return v if v is not None else []
 
     class Config:
         from_attributes = True

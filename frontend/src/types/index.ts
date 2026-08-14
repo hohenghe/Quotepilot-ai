@@ -13,6 +13,7 @@ export interface Product {
   pricing: string | null
   lead_time_days: number | null
   image_url: string | null
+  images: string[]
   is_active: boolean
   view_count: number
   favorite_count: number

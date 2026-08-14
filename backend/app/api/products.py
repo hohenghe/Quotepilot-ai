@@ -72,6 +72,40 @@ async def list_products(
     )
 
 
+@router.post("", response_model=ProductResponse)
+async def create_product(
+    data: ProductCreate,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
+):
+    """Manually create a single product (no file upload required)."""
+    images = data.images or []
+    if len(images) > 10:
+        raise HTTPException(status_code=400, detail="A product can have at most 10 images")
+
+    product = Product(
+        name=data.name,
+        sku=data.sku,
+        category=data.category or "other",
+        description=data.description,
+        technical_specs=data.technical_specs,
+        certifications=data.certifications,
+        moq=data.moq,
+        unit_price=data.unit_price,
+        price_range_low=data.price_range_low,
+        price_range_high=data.price_range_high,
+        pricing=data.pricing,
+        lead_time_days=data.lead_time_days,
+        image_url=data.image_url,
+        images=images,
+        seller_id=user.id,
+    )
+    db.add(product)
+    await db.commit()
+    await db.refresh(product)
+    return ProductResponse.model_validate(product)
+
+
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
@@ -126,6 +160,7 @@ async def upload_product_file(
                 price_range_high=pdata.get("price_range_high"),
                 pricing=pdata.get("pricing"),
                 lead_time_days=pdata.get("lead_time_days"),
+                images=[],
                 seller_id=user.id,
             )
             db.add(product)
@@ -156,6 +191,8 @@ async def update_product(
         raise HTTPException(status_code=404, detail="Product not found")
 
     update_data = data.model_dump(exclude_unset=True)
+    if "images" in update_data and len(update_data["images"] or []) > 10:
+        raise HTTPException(status_code=400, detail="A product can have at most 10 images")
     for key, value in update_data.items():
         setattr(product, key, value)
 

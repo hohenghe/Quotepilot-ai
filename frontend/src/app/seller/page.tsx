@@ -4,10 +4,10 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { useRouter } from "next/navigation"
 import {
   LayoutDashboard, Package, Mail, User, Upload, Trash2, Search, FileText,
-  Copy, Clock, CheckCircle2, Inbox, Star, Flag,
+  Copy, Clock, CheckCircle2, Inbox, Star, Flag, Pencil, ImagePlus, Plus,
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore, uploadImage } from "@/lib/api-client"
 import { COUNTRIES } from "@/lib/countries"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
@@ -15,6 +15,7 @@ import EmptyState from "@/components/EmptyState"
 import ConfirmDialog from "@/components/ConfirmDialog"
 import StatusBadge from "@/components/StatusBadge"
 import PageLoader from "@/components/PageLoader"
+import ProductFormModal from "@/components/ProductFormModal"
 import { TableSkeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
 import { useT } from "@/i18n/I18nProvider"
@@ -62,9 +63,16 @@ export default function SellerPage() {
 
   const [profileName, setProfileName] = useState("")
   const [profileStoreName, setProfileStoreName] = useState("")
+  const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
+  const [profileLicense, setProfileLicense] = useState<string | null>(null)
   const [profilePhone, setProfilePhone] = useState("")
   const [profileCountry, setProfileCountry] = useState("CN")
   const [savingProfile, setSavingProfile] = useState(false)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [uploadingLicense, setUploadingLicense] = useState(false)
+
+  const [productModalOpen, setProductModalOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
 
   const [sellerReviews, setSellerReviews] = useState<ReviewItem[]>([])
   const [reviewsLoading, setReviewsLoading] = useState(false)
@@ -136,20 +144,59 @@ export default function SellerPage() {
     if (tab === "profile" && user) {
       setProfileName(user.name || "")
       setProfileStoreName(user.store_name || "")
+      setProfileAvatar(user.avatar_url || null)
+      setProfileLicense(user.business_license_url || null)
       setProfilePhone(user.phone || "")
       setProfileCountry(user.country || "CN")
     }
   }, [tab, user?.user_id])
 
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingAvatar(true)
+    try {
+      const res = await uploadImage(file, "avatar")
+      setProfileAvatar(res.url)
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setUploadingAvatar(false)
+      e.target.value = ""
+    }
+  }
+
+  const handleLicenseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingLicense(true)
+    try {
+      const res = await uploadImage(file, "license")
+      setProfileLicense(res.url)
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setUploadingLicense(false)
+      e.target.value = ""
+    }
+  }
+
   const handleSaveProfile = async () => {
     setSavingProfile(true)
     try {
-      const res = await updateProfile({ name: profileName, store_name: profileStoreName, phone: profilePhone, country: profileCountry })
+      const res = await updateProfile({
+        name: profileName,
+        store_name: profileStoreName,
+        avatar_url: profileAvatar ?? undefined,
+        business_license_url: profileLicense ?? undefined,
+        phone: profilePhone,
+        country: profileCountry,
+      })
       const token = getToken()
       if (token) {
         saveAuth(token, {
           user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-          store_name: res.store_name, country: res.country, phone: res.phone, uid: res.uid,
+          store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country, phone: res.phone, uid: res.uid,
         })
       }
       toast.push("success", t.seller.profileUpdated)
@@ -333,14 +380,23 @@ export default function SellerPage() {
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.seller.products}</h1>
               <p className="mt-1 text-sm text-slate-500">{t.seller.productsSubtitle}</p>
             </div>
-            <button
-              className="btn-primary flex-shrink-0"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={uploading}
-            >
-              <Upload className="w-4 h-4" />
-              {uploading ? t.seller.uploading : t.seller.uploadCsv}
-            </button>
+            <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
+              <button
+                className="btn-secondary flex-shrink-0"
+                onClick={() => { setEditingProduct(null); setProductModalOpen(true) }}
+              >
+                <Plus className="w-4 h-4" />
+                {t.seller.addProduct}
+              </button>
+              <button
+                className="btn-primary flex-shrink-0"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+              >
+                <Upload className="w-4 h-4" />
+                {uploading ? t.seller.uploading : t.seller.uploadCsv}
+              </button>
+            </div>
             <input
               ref={fileInputRef}
               type="file"
@@ -425,6 +481,7 @@ export default function SellerPage() {
                       <th className="th">{t.seller.tableMoq}</th>
                       <th className="th">{t.products.favorites}</th>
                       <th className="th">{t.products.views}</th>
+                      <th className="th"></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -451,6 +508,15 @@ export default function SellerPage() {
                         <td className="td text-slate-500">{p.moq ?? "—"}</td>
                         <td className="td text-slate-500">{p.favorite_count ?? 0}</td>
                         <td className="td text-slate-500">{p.view_count ?? 0}</td>
+                        <td className="td text-right">
+                          <button
+                            className="btn-secondary btn-sm"
+                            onClick={() => { setEditingProduct(p); setProductModalOpen(true) }}
+                          >
+                            <Pencil className="w-3.5 h-3.5" />
+                            {t.seller.edit}
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -622,6 +688,40 @@ export default function SellerPage() {
                   />
                 </div>
                 <div>
+                  <label className="label">{t.seller.avatar}</label>
+                  <div className="flex items-center gap-3">
+                    {profileAvatar ? (
+                      <img src={profileAvatar} alt="" className="w-16 h-16 rounded-full object-cover border border-slate-200" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                        <User className="w-6 h-6" />
+                      </div>
+                    )}
+                    <label className="btn-secondary btn-sm cursor-pointer">
+                      <ImagePlus className="w-4 h-4" />
+                      {uploadingAvatar ? t.common.loading : t.seller.uploadAvatar}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar} />
+                    </label>
+                  </div>
+                </div>
+                <div>
+                  <label className="label">{t.seller.businessLicense}</label>
+                  <div className="flex items-center gap-3">
+                    {profileLicense ? (
+                      <img src={profileLicense} alt="" className="w-16 h-16 object-cover rounded-lg border border-slate-200" />
+                    ) : (
+                      <div className="w-16 h-16 rounded-lg bg-slate-100 flex items-center justify-center text-slate-400">
+                        <FileText className="w-6 h-6" />
+                      </div>
+                    )}
+                    <label className="btn-secondary btn-sm cursor-pointer">
+                      <ImagePlus className="w-4 h-4" />
+                      {uploadingLicense ? t.common.loading : t.seller.uploadLicense}
+                      <input type="file" accept="image/*" className="hidden" onChange={handleLicenseUpload} disabled={uploadingLicense} />
+                    </label>
+                  </div>
+                </div>
+                <div>
                   <label className="label">{t.auth.email}</label>
                   <input className="input bg-slate-50" value={user?.email || ""} disabled />
                 </div>
@@ -649,6 +749,13 @@ export default function SellerPage() {
           </>
         )
       )}
+
+      <ProductFormModal
+        open={productModalOpen}
+        initial={editingProduct}
+        onClose={() => setProductModalOpen(false)}
+        onSaved={() => { setProductModalOpen(false); loadProducts() }}
+      />
 
       <ConfirmDialog
         open={confirmOpen}

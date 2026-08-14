@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star, Store } from "lucide-react"
-import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct } from "@/lib/api-client"
-import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
+import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star, Store, ImagePlus } from "lucide-react"
+import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct, uploadImage, updateProfile } from "@/lib/api-client"
+import { saveAuth, isAuthenticated, getUser, logout, getToken } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
 import DashboardShell from "@/components/DashboardShell"
 import EmptyState from "@/components/EmptyState"
@@ -46,6 +46,31 @@ export default function BuyerPage() {
 
   const [reviewTarget, setReviewTarget] = useState<{ id: number; name: string } | null>(null)
   const [sellerTarget, setSellerTarget] = useState<{ id: number; name: string } | null>(null)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+
+  const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploadingAvatar(true)
+    try {
+      const res = await uploadImage(file, "avatar")
+      const token = getToken()
+      if (token) {
+        const updated = await updateProfile({ avatar_url: res.url })
+        saveAuth(token, {
+          user_id: updated.user_id, email: updated.email, role: updated.role, name: updated.name,
+          store_name: updated.store_name, avatar_url: updated.avatar_url, business_license_url: updated.business_license_url,
+          country: updated.country, phone: updated.phone, uid: updated.uid,
+        })
+      }
+      toast.push("success", t.seller.profileUpdated)
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setUploadingAvatar(false)
+      e.target.value = ""
+    }
+  }
 
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => { setAuthReady(true) }, [])
@@ -71,7 +96,7 @@ export default function BuyerPage() {
       const res = await login(data.email, data.password, "buyer")
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        store_name: res.store_name, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
+        store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
     } catch (e: any) {
       setAuthError(e.message || "Authentication failed")
@@ -501,10 +526,36 @@ export default function BuyerPage() {
           )}
         </>
       ) : (
-        <EmptyState
-          title={nav.find(n => n.key === active)?.label || ""}
-          description={t.common.comingSoon}
-        />
+        <>
+          <header className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.nav.profile}</h1>
+          </header>
+          <div className="card p-6 max-w-xl">
+            <div className="space-y-4">
+              <div>
+                <label className="label">{t.seller.avatar}</label>
+                <div className="flex items-center gap-3">
+                  {user.avatar_url ? (
+                    <img src={user.avatar_url} alt="" className="w-16 h-16 rounded-full object-cover border border-slate-200" />
+                  ) : (
+                    <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
+                      <User className="w-6 h-6" />
+                    </div>
+                  )}
+                  <label className="btn-secondary btn-sm cursor-pointer">
+                    <ImagePlus className="w-4 h-4" />
+                    {uploadingAvatar ? t.common.loading : t.seller.uploadAvatar}
+                    <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar} />
+                  </label>
+                </div>
+              </div>
+              <div>
+                <label className="label">{t.auth.email}</label>
+                <input className="input bg-slate-50" value={user.email} disabled />
+              </div>
+            </div>
+          </div>
+        </>
       )}
 
       <ReviewModal

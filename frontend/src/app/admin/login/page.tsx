@@ -21,7 +21,7 @@ export default function AdminLoginPage() {
       const res = await login(data.email, data.password, "admin")
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        store_name: res.store_name, country: res.country, phone: res.phone, uid: res.uid,
+        store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country, phone: res.phone, uid: res.uid,
       })
       router.push("/admin")
     } catch (e: any) {

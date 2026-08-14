@@ -46,6 +46,8 @@ class LoginRequest(BaseModel):
 class UpdateProfileRequest(BaseModel):
     name: str | None = None
     store_name: str | None = None
+    avatar_url: str | None = None
+    business_license_url: str | None = None
     phone: str | None = None
     country: str | None = None
 
@@ -74,6 +76,8 @@ class AuthResponse(BaseModel):
     role: str
     name: str | None = None
     store_name: str | None = None
+    avatar_url: str | None = None
+    business_license_url: str | None = None
     country: str | None = None
     phone: str | None = None
     uid: str | None = None
@@ -230,6 +234,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
         name=user.name, store_name=user.store_name,
+        avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
 
@@ -355,6 +360,7 @@ async def me(user: User = Depends(require_auth)):
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
         name=user.name, store_name=user.store_name,
+        avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
 
@@ -369,6 +375,10 @@ async def update_me(
         user.name = data.name.strip() or None
     if data.store_name is not None:
         user.store_name = data.store_name.strip() or None
+    if data.avatar_url is not None:
+        user.avatar_url = data.avatar_url.strip() or None
+    if data.business_license_url is not None:
+        user.business_license_url = data.business_license_url.strip() or None
     if data.phone is not None:
         user.phone = data.phone.strip() or None
     if data.country is not None:
@@ -378,5 +388,6 @@ async def update_me(
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
         name=user.name, store_name=user.store_name,
+        avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )

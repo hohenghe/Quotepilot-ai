@@ -31,7 +31,7 @@ export default function SellerLoginPage() {
       }
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        store_name: res.store_name, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
+        store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
       router.push("/seller")
     } catch (e: any) {

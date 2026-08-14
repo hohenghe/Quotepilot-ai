@@ -2,7 +2,7 @@ import logging
 import os
 import re
 import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from fastapi.responses import FileResponse
 from app.core.auth import require_auth
 from app.models.user import User
@@ -35,10 +35,19 @@ EXT_TO_MIME = {
 SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpg|jpeg|gif|webp)$")
 MAX_SIZE = 5 * 1024 * 1024
 
+# Object-key prefix per upload kind (client cannot control the key).
+KIND_PREFIX = {
+    "review": "reviews",
+    "product": "products",
+    "avatar": "avatars",
+    "license": "licenses",
+}
+
 
 @router.post("/upload")
 async def upload_image(
     file: UploadFile = File(...),
+    kind: str = Form("review"),
     _: User = Depends(require_auth),
 ):
     content = await file.read()
@@ -55,7 +64,11 @@ async def upload_image(
     else:
         raise HTTPException(status_code=400, detail="Unsupported image type")
 
-    object_key = f"reviews/{uuid.uuid4()}{ext}"
+    prefix = KIND_PREFIX.get(kind)
+    if prefix is None:
+        raise HTTPException(status_code=400, detail="Unsupported upload kind")
+
+    object_key = f"{prefix}/{uuid.uuid4()}{ext}"
     try:
         url = await upload_to_r2(object_key, content, content_type)
     except Exception as e:

@@ -273,6 +273,8 @@ interface AuthResponse {
   role: string
   name: string | null
   store_name: string | null
+  avatar_url: string | null
+  business_license_url: string | null
   country: string | null
   phone: string | null
   uid: string | null
@@ -293,7 +295,7 @@ export async function register(email: string, password: string, name: string, co
   return { ok: !!data.success, message: data.message || "" }
 }
 
-export async function updateProfile(data: { name?: string; store_name?: string; phone?: string; country?: string }): Promise<AuthResponse> {
+export async function updateProfile(data: { name?: string; store_name?: string; avatar_url?: string; business_license_url?: string; phone?: string; country?: string }): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/me", {
     method: "PUT",
     body: JSON.stringify(data),
@@ -490,6 +492,37 @@ export async function getSellerProducts(): Promise<{ total: number; items: Produ
   return first
 }
 
+export interface ProductPayload {
+  name: string
+  sku?: string | null
+  category?: string
+  description?: string | null
+  technical_specs?: string | null
+  certifications?: string | null
+  moq?: number | null
+  unit_price?: number | null
+  price_range_low?: number | null
+  price_range_high?: number | null
+  pricing?: string | null
+  lead_time_days?: number | null
+  image_url?: string | null
+  images?: string[]
+}
+
+export async function createProduct(data: ProductPayload): Promise<Product> {
+  return await request<Product>("/api/products", {
+    method: "POST",
+    body: JSON.stringify(data),
+  })
+}
+
+export async function updateProduct(productId: number, data: ProductPayload): Promise<Product> {
+  return await request<Product>(`/api/products/${productId}`, {
+    method: "PUT",
+    body: JSON.stringify(data),
+  })
+}
+
 export async function deleteSellerProduct(productId: number): Promise<void> {
   await request(`/api/products/${productId}`, { method: "DELETE" })
 }
@@ -577,9 +610,10 @@ export async function getSellerProductsById(sellerId: number): Promise<SellerPro
 
 // ── Files ───────────────────────────────────────────────────────
 
-export async function uploadImage(file: File): Promise<{ url: string }> {
+export async function uploadImage(file: File, kind: "review" | "product" | "avatar" | "license" = "review"): Promise<{ url: string }> {
   const formData = new FormData()
   formData.append("file", file)
+  formData.append("kind", kind)
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) headers["Authorization"] = `Bearer ${token}`

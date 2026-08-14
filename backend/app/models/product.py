@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Boolean
+from sqlalchemy import Column, Integer, String, Float, Text, DateTime, Boolean, JSON
 from sqlalchemy.sql import func
 from pgvector.sqlalchemy import Vector
 from app.core.database import Base
@@ -36,6 +36,7 @@ class Product(Base):
     seller_id = Column(Integer, nullable=True, index=True)
     lead_time_days = Column(Integer, nullable=True)
     image_url = Column(String(500), nullable=True)
+    images = Column(JSON, default=list)
     is_active = Column(Boolean, default=True)
     view_count = Column(Integer, default=0, nullable=False)
 

@@ -156,6 +156,8 @@ const zhTW = {
     noMatchTitle: "暫無符合產品",
     editRequest: "編輯需求",
     supplier: "供應商",
+    seller: "商家",
+    noSellerProducts: "該商家暫無商品。",
     results: (n: number) => `${n} 個結果`,
     noInquiries: "您還沒有送出過詢盤。",
     pending: "待回覆",
@@ -209,6 +211,7 @@ const zhTW = {
     profileUpdated: "個人資料已更新。",
     reviews: "評價",
     storeScore: "店鋪得分",
+    storeName: "店鋪名稱",
     noReviews: "暫無評價",
   },
   admin: {
@@ -320,6 +323,7 @@ const zhTW = {
     passwordMismatch: "兩次密碼不一致",
     registering: "建立中...",
     signingIn: "登入中...",
+    iAmSeller: "我是賣家",
   },
   country: {
     china: "中國",

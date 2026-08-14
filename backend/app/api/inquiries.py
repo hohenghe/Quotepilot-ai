@@ -57,7 +57,7 @@ async def list_buyer_inquiries(
     total = total_result.scalar() or 0
 
     stmt = (
-        select(SellerInquiry, Product.name, User.email, User.name)
+        select(SellerInquiry, Product.name, User.email, User.name, User.store_name)
         .outerjoin(Product, SellerInquiry.product_id == Product.id)
         .outerjoin(User, SellerInquiry.seller_id == User.id)
         .where(SellerInquiry.buyer_id == user.id)
@@ -74,14 +74,14 @@ async def list_buyer_inquiries(
             "product_id": si.product_id,
             "product_name": product_name,
             "seller_id": si.seller_id,
-            "seller_name": seller_name,
+            "seller_name": seller_store or seller_name or seller_email,
             "seller_email": seller_email,
             "raw_message": si.raw_message,
             "status": si.status,
             "reply_body": si.reply_body,
             "created_at": si.created_at.isoformat() if si.created_at else None,
         }
-        for si, product_name, seller_email, seller_name in rows
+        for si, product_name, seller_email, seller_name, seller_store in rows
     ]
 
     return {
@@ -148,6 +148,14 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
         await db.commit()
 
     matched = []
+    seller_ids = {mp.get("seller_id") for mp in match_results if mp.get("seller_id")}
+    seller_names: dict[int, str] = {}
+    if seller_ids:
+        seller_rows = await db.execute(
+            select(User.id, User.name, User.email, User.store_name).where(User.id.in_(seller_ids))
+        )
+        seller_names = {sid: (store_name or name or email) for sid, name, email, store_name in seller_rows.all()}
+
     for mp in match_results:
         reasons = []
         if mp.get("category") == analysis_data.get("product_category"):
@@ -164,6 +172,8 @@ async def analyze_and_match(request: InquiryCreate, db: AsyncSession = Depends(g
             MatchedProduct(
                 product_id=mp["product_id"],
                 product_name=mp["product_name"],
+                seller_id=mp.get("seller_id"),
+                seller_name=seller_names.get(mp.get("seller_id")),
                 sku=mp.get("sku"),
                 match_score=mp["match_score"],
                 match_reason="; ".join(reasons),

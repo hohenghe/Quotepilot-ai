@@ -268,7 +268,7 @@ async def admin_list_all_products(
     _: User = Depends(require_admin),
 ):
     query = (
-        select(Product, User.name, User.email, _favorite_count_subquery().label("favorite_count"))
+        select(Product, User.name, User.email, User.store_name, _favorite_count_subquery().label("favorite_count"))
         .outerjoin(User, Product.seller_id == User.id)
         .where(Product.is_active == True)
     )
@@ -290,9 +290,9 @@ async def admin_list_all_products(
     rows = result.all()
 
     items = []
-    for p, seller_name, seller_email, fav in rows:
+    for p, seller_name, seller_email, seller_store, fav in rows:
         resp = ProductResponse.model_validate(p)
-        resp.seller_name = seller_name
+        resp.seller_name = seller_store or seller_name
         resp.seller_email = seller_email
         resp.favorite_count = fav or 0
         items.append(resp)

@@ -156,6 +156,8 @@ const zhCN = {
     noMatchTitle: "暂无匹配产品",
     editRequest: "编辑需求",
     supplier: "供应商",
+    seller: "商家",
+    noSellerProducts: "该商家暂无商品。",
     results: (n: number) => `${n} 个结果`,
     noInquiries: "您还没有发送过询盘。",
     pending: "待回复",
@@ -209,6 +211,7 @@ const zhCN = {
     profileUpdated: "个人信息已更新。",
     reviews: "评价",
     storeScore: "店铺得分",
+    storeName: "店铺名称",
     noReviews: "暂无评价",
   },
   admin: {
@@ -320,6 +323,7 @@ const zhCN = {
     passwordMismatch: "两次密码不一致",
     registering: "创建中...",
     signingIn: "登录中...",
+    iAmSeller: "我是卖家",
   },
   country: {
     china: "中国",

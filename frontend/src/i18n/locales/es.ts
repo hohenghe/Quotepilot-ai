@@ -157,6 +157,8 @@ const es = {
     noMatchTitle: "Aún no hay productos coincidentes",
     editRequest: "Editar solicitud",
     supplier: "Proveedor",
+    seller: "Vendedor",
+    noSellerProducts: "Este vendedor aún no tiene productos.",
     results: (n: number) => `${n} resultados`,
     noInquiries: "Aún no ha enviado ninguna consulta.",
     pending: "Pendiente",
@@ -210,6 +212,7 @@ const es = {
     profileUpdated: "Perfil actualizado correctamente.",
     reviews: "Reseñas",
     storeScore: "Puntuación de la tienda",
+    storeName: "Nombre de la tienda",
     noReviews: "Aún no hay reseñas",
   },
   admin: {
@@ -323,6 +326,7 @@ const es = {
     passwordMismatch: "Las contraseñas no coinciden",
     registering: "Creando cuenta...",
     signingIn: "Iniciando sesión...",
+    iAmSeller: "Soy vendedor",
   },
   country: {
     china: "China",

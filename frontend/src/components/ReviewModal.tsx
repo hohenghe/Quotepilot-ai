@@ -2,15 +2,15 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { X, Star, Trash2, ImagePlus } from "lucide-react"
-import { getProductReviews, createReview, deleteReview, uploadImage } from "@/lib/api-client"
+import { getSellerReviews, createReview, deleteReview, uploadImage } from "@/lib/api-client"
 import { getUser } from "@/lib/auth"
 import { useToast } from "@/components/Toast"
 import { useT } from "@/i18n/I18nProvider"
-import type { ProductReviews } from "@/lib/api-client"
+import type { SellerReviews } from "@/lib/api-client"
 
 interface Props {
-  productId: number
-  productName: string
+  sellerId: number
+  sellerName: string
   open: boolean
   canWrite: boolean
   onClose: () => void
@@ -27,10 +27,10 @@ function Stars({ value }: { value: number }) {
   )
 }
 
-export default function ReviewModal({ productId, productName, open, canWrite, onClose }: Props) {
+export default function ReviewModal({ sellerId, sellerName, open, canWrite, onClose }: Props) {
   const { t } = useT()
   const toast = useToast()
-  const [data, setData] = useState<ProductReviews | null>(null)
+  const [data, setData] = useState<SellerReviews | null>(null)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState(false)
 
@@ -46,13 +46,13 @@ export default function ReviewModal({ productId, productName, open, canWrite, on
     setLoading(true)
     setError(false)
     try {
-      setData(await getProductReviews(productId))
+      setData(await getSellerReviews(sellerId))
     } catch {
       setError(true)
     } finally {
       setLoading(false)
     }
-  }, [productId])
+  }, [sellerId])
 
   useEffect(() => {
     if (open) load()
@@ -86,7 +86,7 @@ export default function ReviewModal({ productId, productName, open, canWrite, on
     if (rating <= 0) return
     setSubmitting(true)
     try {
-      await createReview(productId, rating, content, images)
+      await createReview(sellerId, rating, content, images)
       toast.push("success", t.review.submitted)
       setRating(0)
       setContent("")
@@ -115,12 +115,12 @@ export default function ReviewModal({ productId, productName, open, canWrite, on
       <div className="relative bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-lg max-h-[85vh] flex flex-col" role="dialog" aria-modal="true">
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0">
-            <h2 className="text-lg font-semibold text-slate-900 truncate">{productName}</h2>
+            <h2 className="text-lg font-semibold text-slate-900 truncate">{sellerName}</h2>
             {data && (
               <div className="flex items-center gap-2 mt-0.5 text-sm text-slate-500">
-                {data.rating != null && <><Stars value={data.rating} /><span>{data.rating.toFixed(1)}</span></>}
+                {data.score != null && <><Stars value={data.score} /><span>{data.score.toFixed(1)}</span></>}
                 <span>·</span>
-                <span>{t.review.count(data.review_count)}</span>
+                <span>{t.review.count(data.review_count ?? data.items.length)}</span>
               </div>
             )}
           </div>

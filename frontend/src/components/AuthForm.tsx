@@ -2,6 +2,7 @@
 
 import { useState } from "react"
 import { Eye, EyeOff } from "lucide-react"
+import Link from "next/link"
 import { COUNTRIES } from "@/lib/countries"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
@@ -187,6 +188,15 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
         )}
 
         {mode === "login" && <div className="mb-6" />}
+
+        {role === "buyer" && (
+          <Link
+            href="/seller"
+            className="block text-center text-sm font-medium text-brand-600 hover:text-brand-700 mb-4"
+          >
+            {t.auth.iAmSeller}
+          </Link>
+        )}
 
         <button
           className="btn-primary w-full justify-center py-3 text-base"

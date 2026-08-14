@@ -146,6 +146,7 @@ async def search_products_hybrid(
         {
             "product_id": p["id"],
             "product_name": p["name"],
+            "seller_id": p.get("seller_id"),
             "sku": p.get("sku"),
             "match_score": round(s, 3),
             "match_reason": "",

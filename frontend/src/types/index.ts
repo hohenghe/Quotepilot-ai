@@ -63,6 +63,8 @@ export interface Inquiry {
 export interface MatchedProduct {
   product_id: number
   product_name: string
+  seller_id: number | null
+  seller_name: string | null
   sku: string | null
   match_score: number
   match_reason: string

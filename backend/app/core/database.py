@@ -30,6 +30,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("password_hash", "TEXT NOT NULL", None),
             ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
             ("name", "TEXT", None),
+            ("store_name", "TEXT", None),
             ("country", "TEXT NOT NULL DEFAULT 'CN'", None),
             ("phone", "TEXT", None),
             ("uid", "TEXT", None),
@@ -127,7 +128,6 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
         ],
         "reviews": [
             ("id", "BIGSERIAL PRIMARY KEY", None),
-            ("product_id", "INTEGER NOT NULL", None),
             ("seller_id", "INTEGER NOT NULL", None),
             ("user_id", "INTEGER NOT NULL", None),
             ("rating", "DOUBLE PRECISION NOT NULL", None),
@@ -236,6 +236,12 @@ async def init_db():
             await conn.execute(text(
                 "ALTER TABLE seller_inquiries ALTER COLUMN inquiry_id DROP NOT NULL"
             ))
+        except Exception:
+            pass
+
+        # reviews: drop product_id (reviews now target sellers instead of products)
+        try:
+            await conn.execute(text("ALTER TABLE reviews DROP COLUMN IF EXISTS product_id"))
         except Exception:
             pass
 

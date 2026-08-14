@@ -14,6 +14,7 @@ class RegisterRequest(BaseModel):
     email: str
     password: str
     name: str | None = None
+    store_name: str | None = None
     country: str
     phone: str
     role: str = "buyer"
@@ -27,6 +28,7 @@ class LoginRequest(BaseModel):
 
 class UpdateProfileRequest(BaseModel):
     name: str | None = None
+    store_name: str | None = None
     phone: str | None = None
     country: str | None = None
 
@@ -37,6 +39,7 @@ class AuthResponse(BaseModel):
     email: str
     role: str
     name: str | None = None
+    store_name: str | None = None
     country: str | None = None
     phone: str | None = None
     uid: str | None = None
@@ -67,6 +70,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         password_hash=hash_password(data.password),
         role=data.role,
         name=data.name.strip() if data.name else None,
+        store_name=data.store_name.strip() if data.store_name else None,
         country=data.country,
         phone=data.phone.strip(),
         uid=generate_uid(),
@@ -78,7 +82,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     token = create_access_token(user.id, user.role)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
-        name=user.name, country=user.country, phone=user.phone, uid=user.uid,
+        name=user.name, store_name=user.store_name,
+        country=user.country, phone=user.phone, uid=user.uid,
     )
 
 
@@ -115,7 +120,8 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     token = create_access_token(user.id, user.role)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
-        name=user.name, country=user.country, phone=user.phone, uid=user.uid,
+        name=user.name, store_name=user.store_name,
+        country=user.country, phone=user.phone, uid=user.uid,
     )
 
 
@@ -123,7 +129,8 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 async def me(user: User = Depends(require_auth)):
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
-        name=user.name, country=user.country, phone=user.phone, uid=user.uid,
+        name=user.name, store_name=user.store_name,
+        country=user.country, phone=user.phone, uid=user.uid,
     )
 
 
@@ -135,6 +142,8 @@ async def update_me(
 ):
     if data.name is not None:
         user.name = data.name.strip() or None
+    if data.store_name is not None:
+        user.store_name = data.store_name.strip() or None
     if data.phone is not None:
         user.phone = data.phone.strip() or None
     if data.country is not None:
@@ -143,5 +152,6 @@ async def update_me(
     await db.refresh(user)
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
-        name=user.name, country=user.country, phone=user.phone, uid=user.uid,
+        name=user.name, store_name=user.store_name,
+        country=user.country, phone=user.phone, uid=user.uid,
     )

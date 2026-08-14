@@ -157,6 +157,8 @@ const en = {
     noMatchTitle: "No matching products yet",
     editRequest: "Edit request",
     supplier: "Supplier",
+    seller: "Seller",
+    noSellerProducts: "This seller has no products yet.",
     results: (n: number) => `${n} results`,
     noInquiries: "You haven't sent any inquiries yet.",
     pending: "Pending",
@@ -210,6 +212,7 @@ const en = {
     profileUpdated: "Profile updated successfully.",
     reviews: "Reviews",
     storeScore: "Store score",
+    storeName: "Store name",
     noReviews: "No reviews yet",
   },
   admin: {
@@ -323,6 +326,7 @@ const en = {
     passwordMismatch: "Passwords do not match",
     registering: "Creating account...",
     signingIn: "Signing in...",
+    iAmSeller: "I'm a seller",
   },
   country: {
     china: "China",

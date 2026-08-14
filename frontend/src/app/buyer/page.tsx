@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star } from "lucide-react"
+import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star, Store } from "lucide-react"
 import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
@@ -10,6 +10,7 @@ import EmptyState from "@/components/EmptyState"
 import PageLoader from "@/components/PageLoader"
 import StatusBadge from "@/components/StatusBadge"
 import ReviewModal from "@/components/ReviewModal"
+import SellerModal from "@/components/SellerModal"
 import { TableSkeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
 import type { AuthFormData } from "@/components/AuthForm"
@@ -44,6 +45,7 @@ export default function BuyerPage() {
   const [savedError, setSavedError] = useState(false)
 
   const [reviewTarget, setReviewTarget] = useState<{ id: number; name: string } | null>(null)
+  const [sellerTarget, setSellerTarget] = useState<{ id: number; name: string } | null>(null)
 
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => { setAuthReady(true) }, [])
@@ -67,7 +69,7 @@ export default function BuyerPage() {
         : await login(data.email, data.password, "buyer")
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
+        store_name: res.store_name, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
     } catch (e: any) {
       setAuthError(e.message || "Authentication failed")
@@ -298,6 +300,15 @@ export default function BuyerPage() {
                         <div className="min-w-0">
                           <h3 className="font-medium text-slate-900 truncate">{mp.product_name}</h3>
                           {mp.sku && <p className="mt-0.5 text-xs text-slate-400">SKU: {mp.sku}</p>}
+                          {mp.seller_name && (
+                            <button
+                              onClick={() => setSellerTarget({ id: mp.seller_id!, name: mp.seller_name! })}
+                              className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-brand-600 hover:text-brand-700 hover:underline"
+                            >
+                              <Store className="w-3.5 h-3.5" />
+                              {t.buyer.supplier}: {mp.seller_name}
+                            </button>
+                          )}
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="badge badge-success">{t.buyer.matchLabel(pct)}</span>
@@ -338,7 +349,8 @@ export default function BuyerPage() {
                         </button>
                         <button
                           className="btn-secondary w-full"
-                          onClick={() => setReviewTarget({ id: mp.product_id, name: mp.product_name })}
+                          disabled={!mp.seller_id}
+                          onClick={() => setReviewTarget({ id: mp.seller_id!, name: mp.seller_name || t.buyer.seller })}
                         >
                           <Star className="w-4 h-4" />
                           {t.review.title}
@@ -494,11 +506,22 @@ export default function BuyerPage() {
       )}
 
       <ReviewModal
-        productId={reviewTarget?.id ?? 0}
-        productName={reviewTarget?.name ?? ""}
+        sellerId={reviewTarget?.id ?? 0}
+        sellerName={reviewTarget?.name ?? ""}
         open={reviewTarget !== null}
         canWrite={user.role !== "admin"}
         onClose={() => setReviewTarget(null)}
+      />
+
+      <SellerModal
+        sellerId={sellerTarget?.id ?? 0}
+        sellerName={sellerTarget?.name ?? ""}
+        open={sellerTarget !== null}
+        onReview={() => {
+          setReviewTarget({ id: sellerTarget!.id, name: sellerTarget!.name })
+          setSellerTarget(null)
+        }}
+        onClose={() => setSellerTarget(null)}
       />
     </DashboardShell>
   )

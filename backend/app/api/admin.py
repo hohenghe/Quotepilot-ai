@@ -74,7 +74,7 @@ async def delete_users_batch(
         return {"success": True, "deleted_count": 0}
 
     product_ids = select(Product.id).where(Product.seller_id.in_(data.ids))
-    await db.execute(delete(Review).where(or_(Review.user_id.in_(data.ids), Review.product_id.in_(product_ids))))
+    await db.execute(delete(Review).where(or_(Review.user_id.in_(data.ids), Review.seller_id.in_(data.ids))))
     await db.execute(delete(SavedProduct).where(or_(SavedProduct.user_id.in_(data.ids), SavedProduct.product_id.in_(product_ids))))
     await db.execute(delete(SellerInquiry).where(or_(SellerInquiry.buyer_id.in_(data.ids), SellerInquiry.seller_id.in_(data.ids))))
     await db.execute(delete(Product).where(Product.seller_id.in_(data.ids)))

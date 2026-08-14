@@ -157,6 +157,8 @@ const fr = {
     noMatchTitle: "Aucun produit correspondant pour l'instant",
     editRequest: "Modifier la demande",
     supplier: "Fournisseur",
+    seller: "Vendeur",
+    noSellerProducts: "Ce vendeur n'a pas encore de produits.",
     results: (n: number) => `${n} résultats`,
     noInquiries: "Vous n'avez encore envoyé aucune demande.",
     pending: "En attente",
@@ -210,6 +212,7 @@ const fr = {
     profileUpdated: "Profil mis à jour avec succès.",
     reviews: "Avis",
     storeScore: "Score de la boutique",
+    storeName: "Nom de la boutique",
     noReviews: "Aucun avis pour l'instant",
   },
   admin: {
@@ -323,6 +326,7 @@ const fr = {
     passwordMismatch: "Les mots de passe ne correspondent pas",
     registering: "Création du compte...",
     signingIn: "Connexion...",
+    iAmSeller: "Je suis vendeur",
   },
   country: {
     china: "Chine",

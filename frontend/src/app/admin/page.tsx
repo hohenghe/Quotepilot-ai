@@ -634,7 +634,7 @@ export default function AdminPage() {
                 <table className="table">
                   <thead>
                     <tr>
-                      <th className="th">{t.admin.tableProduct}</th>
+                      <th className="th">{t.admin.tableSeller}</th>
                       <th className="th">{t.admin.tableUser}</th>
                       <th className="th">{t.admin.tableRating}</th>
                       <th className="th">{t.admin.tableMessage}</th>
@@ -645,7 +645,7 @@ export default function AdminPage() {
                     {reviews.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/70">
                         <td className="td font-medium text-slate-900 max-w-[200px]">
-                          <div className="truncate">{r.product_name || "—"}</div>
+                          <div className="truncate">{r.seller_name || r.seller_email || "—"}</div>
                         </td>
                         <td className="td text-slate-500">{r.user_email || "—"}</td>
                         <td className="td text-slate-500">★ {r.rating.toFixed(1)}</td>

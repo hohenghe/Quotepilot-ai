@@ -29,7 +29,7 @@ export default function SellerLoginPage() {
       }
       saveAuth(res.token, {
         user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-        country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
+        store_name: res.store_name, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
       router.push("/seller")
     } catch (e: any) {

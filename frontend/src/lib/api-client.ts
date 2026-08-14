@@ -77,6 +77,8 @@ interface ApiInquiryAnalysis {
 interface ApiMatchedProduct {
   product_id: number
   product_name: string
+  seller_id: number | null
+  seller_name: string | null
   sku: string | null
   match_score: number
   match_reason: string
@@ -151,6 +153,8 @@ function adaptMatchedProduct(raw: ApiMatchedProduct): MatchedProduct {
   return {
     product_id: raw.product_id,
     product_name: raw.product_name,
+    seller_id: raw.seller_id ?? null,
+    seller_name: raw.seller_name ?? null,
     sku: raw.sku,
     match_score: raw.match_score,
     match_reason: raw.match_reason,
@@ -268,6 +272,7 @@ interface AuthResponse {
   email: string
   role: string
   name: string | null
+  store_name: string | null
   country: string | null
   phone: string | null
   uid: string | null
@@ -287,7 +292,7 @@ export async function register(email: string, password: string, name: string, co
   })
 }
 
-export async function updateProfile(data: { name?: string; phone?: string; country?: string }): Promise<AuthResponse> {
+export async function updateProfile(data: { name?: string; store_name?: string; phone?: string; country?: string }): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/me", {
     method: "PUT",
     body: JSON.stringify(data),
@@ -459,8 +464,9 @@ export async function deleteAllProducts(): Promise<number> {
 
 export interface ReviewItem {
   id: number
-  product_id: number
-  product_name?: string
+  seller_id: number
+  seller_name?: string | null
+  seller_email?: string | null
   user_id: number
   user_name?: string
   user_email?: string
@@ -471,20 +477,20 @@ export interface ReviewItem {
   created_at: string | null
 }
 
-export interface ProductReviews {
+export interface SellerReviews {
   items: ReviewItem[]
-  rating: number | null
-  review_count: number
+  score: number | null
+  review_count?: number
 }
 
-export async function getProductReviews(productId: number): Promise<ProductReviews> {
-  return await request(`/api/reviews?product_id=${productId}`)
+export async function getSellerReviews(sellerId: number): Promise<SellerReviews> {
+  return await request(`/api/reviews?seller_id=${sellerId}`)
 }
 
-export async function createReview(productId: number, rating: number, content: string, images: string[]): Promise<void> {
+export async function createReview(sellerId: number, rating: number, content: string, images: string[]): Promise<void> {
   await request("/api/reviews", {
     method: "POST",
-    body: JSON.stringify({ product_id: productId, rating, content, images }),
+    body: JSON.stringify({ seller_id: sellerId, rating, content, images }),
   })
 }
 
@@ -496,7 +502,7 @@ export async function reportReview(reviewId: number): Promise<void> {
   await request(`/api/reviews/${reviewId}/report`, { method: "POST" })
 }
 
-export async function getSellerReviews(): Promise<{ items: ReviewItem[] }> {
+export async function getMySellerReviews(): Promise<SellerReviews> {
   return await request("/api/reviews/seller")
 }
 
@@ -506,6 +512,18 @@ export async function adminListReviews(): Promise<{ items: ReviewItem[] }> {
 
 export async function getSellerScore(): Promise<{ score: number | null }> {
   return await request("/api/sellers/score")
+}
+
+export interface SellerProductsResult {
+  seller_id: number
+  seller_name: string | null
+  seller_email: string | null
+  score: number | null
+  items: Product[]
+}
+
+export async function getSellerProductsById(sellerId: number): Promise<SellerProductsResult> {
+  return await request(`/api/sellers/${sellerId}/products`)
 }
 
 // ── Files ───────────────────────────────────────────────────────

@@ -43,6 +43,8 @@ class InquiryResponse(BaseModel):
 class MatchedProduct(BaseModel):
     product_id: int
     product_name: str
+    seller_id: Optional[int] = None
+    seller_name: Optional[str] = None
     sku: Optional[str] = None
     match_score: float
     match_reason: str

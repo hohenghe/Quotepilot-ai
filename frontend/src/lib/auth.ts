@@ -6,6 +6,7 @@ export interface AuthUser {
   email: string
   role: string
   name: string | null
+  store_name: string | null
   country: string | null
   phone: string | null
   uid: string | null

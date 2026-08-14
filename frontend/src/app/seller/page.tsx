@@ -7,7 +7,7 @@ import {
   Copy, Clock, CheckCircle2, Inbox, Star, Flag,
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getSellerReviews, reportReview, getSellerScore } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore } from "@/lib/api-client"
 import { COUNTRIES } from "@/lib/countries"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
@@ -61,6 +61,7 @@ export default function SellerPage() {
   const [generatingId, setGeneratingId] = useState<number | null>(null)
 
   const [profileName, setProfileName] = useState("")
+  const [profileStoreName, setProfileStoreName] = useState("")
   const [profilePhone, setProfilePhone] = useState("")
   const [profileCountry, setProfileCountry] = useState("CN")
   const [savingProfile, setSavingProfile] = useState(false)
@@ -134,6 +135,7 @@ export default function SellerPage() {
   useEffect(() => {
     if (tab === "profile" && user) {
       setProfileName(user.name || "")
+      setProfileStoreName(user.store_name || "")
       setProfilePhone(user.phone || "")
       setProfileCountry(user.country || "CN")
     }
@@ -142,12 +144,12 @@ export default function SellerPage() {
   const handleSaveProfile = async () => {
     setSavingProfile(true)
     try {
-      const res = await updateProfile({ name: profileName, phone: profilePhone, country: profileCountry })
+      const res = await updateProfile({ name: profileName, store_name: profileStoreName, phone: profilePhone, country: profileCountry })
       const token = getToken()
       if (token) {
         saveAuth(token, {
           user_id: res.user_id, email: res.email, role: res.role, name: res.name,
-          country: res.country, phone: res.phone, uid: res.uid,
+          store_name: res.store_name, country: res.country, phone: res.phone, uid: res.uid,
         })
       }
       toast.push("success", t.seller.profileUpdated)
@@ -162,7 +164,7 @@ export default function SellerPage() {
     setReviewsLoading(true)
     setReviewsError(false)
     try {
-      const data = await getSellerReviews()
+      const data = await getMySellerReviews()
       setSellerReviews(data.items)
     } catch {
       setReviewsError(true)
@@ -567,7 +569,7 @@ export default function SellerPage() {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="font-medium text-slate-900 truncate">{r.product_name || "—"}</span>
+                        <span className="font-medium text-slate-900 truncate">{r.user_name || r.user_email || "—"}</span>
                         <span className="text-amber-500 text-sm">★ {r.rating.toFixed(1)}</span>
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500">{t.seller.from}: {r.user_email || "—"}</p>
@@ -609,6 +611,15 @@ export default function SellerPage() {
                 <div>
                   <label className="label">{t.auth.companyNameRequired}</label>
                   <input className="input" value={profileName} onChange={e => setProfileName(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">{t.seller.storeName}</label>
+                  <input
+                    className="input"
+                    value={profileStoreName}
+                    onChange={e => setProfileStoreName(e.target.value)}
+                    placeholder={profileName || t.seller.storeName}
+                  />
                 </div>
                 <div>
                   <label className="label">{t.auth.email}</label>

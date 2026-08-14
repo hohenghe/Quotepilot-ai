@@ -44,18 +44,25 @@ async def list_saved(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_buyer),
 ):
-    fav_subq = (
-        select(func.count(SavedProduct.id))
-        .where(SavedProduct.product_id == Product.id)
-        .scalar_subquery()
-    )
     stmt = (
-        select(SavedProduct, Product, fav_subq.label("favorite_count"))
+        select(SavedProduct, Product)
         .join(Product, SavedProduct.product_id == Product.id)
         .where(SavedProduct.user_id == user.id, Product.is_active == True)
         .order_by(SavedProduct.created_at.desc())
     )
     rows = (await db.execute(stmt)).all()
+
+    # favorite_count per product, computed in one batch query (no correlated subquery).
+    product_ids = [p.id for _, p in rows]
+    fav_counts: dict[int, int] = {}
+    if product_ids:
+        fav_rows = await db.execute(
+            select(SavedProduct.product_id, func.count(SavedProduct.id))
+            .where(SavedProduct.product_id.in_(product_ids))
+            .group_by(SavedProduct.product_id)
+        )
+        fav_counts = {pid: cnt for pid, cnt in fav_rows.all()}
+
     items = [
         {
             "product_id": p.id,
@@ -70,10 +77,10 @@ async def list_saved(
             "lead_time_days": p.lead_time_days,
             "certifications": p.certifications,
             "technical_specs": p.technical_specs,
-            "favorite_count": fav or 0,
+            "favorite_count": fav_counts.get(p.id, 0),
             "created_at": sp.created_at.isoformat() if sp.created_at else None,
         }
-        for sp, p, fav in rows
+        for sp, p in rows
     ]
     return {"items": items}
 

@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
-import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview } from "@/lib/api-client"
+import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -67,6 +67,8 @@ export default function AdminPage() {
   const [deleting, setDeleting] = useState(false)
   const [confirmResetOpen, setConfirmResetOpen] = useState(false)
   const [resetting, setResetting] = useState(false)
+  const [confirmClearSavedOpen, setConfirmClearSavedOpen] = useState(false)
+  const [clearingSaved, setClearingSaved] = useState(false)
   const [inquiries, setInquiries] = useState<Inquiry[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -209,6 +211,19 @@ export default function AdminPage() {
     }
   }
 
+  const handleClearSaved = async () => {
+    setClearingSaved(true)
+    try {
+      await adminClearSavedProducts()
+      toast.push("success", t.admin.savedCleared)
+    } catch {
+      toast.push("error", t.common.somethingWentWrong)
+    } finally {
+      setClearingSaved(false)
+      setConfirmClearSavedOpen(false)
+    }
+  }
+
   const allAccountsSelected = accounts.length > 0 && accounts.every(a => selectedAccountIds.has(a.id))
   const toggleSelectAllAccounts = () => {
     setSelectedAccountIds(allAccountsSelected ? new Set() : new Set(accounts.map(a => a.id)))
@@ -339,10 +354,16 @@ export default function AdminPage() {
           <div className="card p-6 mt-6 border-red-200">
             <h2 className="text-base font-semibold text-red-700">{t.admin.dangerZone}</h2>
             <p className="mt-1 text-sm text-slate-500">{t.admin.deleteAllDesc}</p>
-            <button className="btn-danger mt-4" onClick={() => setConfirmResetOpen(true)}>
-              <Trash2 className="w-4 h-4" />
-              {t.admin.deleteAll}
-            </button>
+            <div className="mt-4 flex items-center gap-3 flex-wrap">
+              <button className="btn-danger" onClick={() => setConfirmResetOpen(true)}>
+                <Trash2 className="w-4 h-4" />
+                {t.admin.deleteAll}
+              </button>
+              <button className="btn-danger" onClick={() => setConfirmClearSavedOpen(true)}>
+                <Trash2 className="w-4 h-4" />
+                {t.admin.clearSaved}
+              </button>
+            </div>
           </div>
         </>
       )}
@@ -715,6 +736,17 @@ export default function AdminPage() {
         loading={resetting}
         onConfirm={handleResetAll}
         onCancel={() => setConfirmResetOpen(false)}
+      />
+
+      <ConfirmDialog
+        open={confirmClearSavedOpen}
+        title={t.admin.clearSavedTitle}
+        description={t.admin.clearSavedDesc}
+        confirmLabel={t.admin.clearSaved}
+        cancelLabel={t.common.cancel}
+        loading={clearingSaved}
+        onConfirm={handleClearSaved}
+        onCancel={() => setConfirmClearSavedOpen(false)}
       />
 
       <ConfirmDialog

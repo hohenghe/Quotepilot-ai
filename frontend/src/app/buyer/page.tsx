@@ -42,7 +42,7 @@ export default function BuyerPage() {
 
   const [savedProducts, setSavedProducts] = useState<SavedProductItem[]>([])
   const [savedLoading, setSavedLoading] = useState(false)
-  const [savedError, setSavedError] = useState(false)
+  const [savedError, setSavedError] = useState<string | null>(null)
 
   const [reviewTarget, setReviewTarget] = useState<{ id: number; name: string } | null>(null)
   const [sellerTarget, setSellerTarget] = useState<{ id: number; name: string } | null>(null)
@@ -179,12 +179,12 @@ export default function BuyerPage() {
 
   const loadSavedProducts = useCallback(async () => {
     setSavedLoading(true)
-    setSavedError(false)
+    setSavedError(null)
     try {
       const items = await getSavedProducts()
       setSavedProducts(items)
-    } catch {
-      setSavedError(true)
+    } catch (e: any) {
+      setSavedError(e?.message || "Failed to load saved products")
     } finally {
       setSavedLoading(false)
     }
@@ -493,6 +493,7 @@ export default function BuyerPage() {
           ) : savedError ? (
             <EmptyState
               title={t.common.somethingWentWrong}
+              description={savedError}
               action={<button className="btn-secondary" onClick={loadSavedProducts}>{t.common.tryAgain}</button>}
             />
           ) : savedProducts.length === 0 ? (

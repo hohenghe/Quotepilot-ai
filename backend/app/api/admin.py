@@ -35,6 +35,14 @@ async def reset_all(db: AsyncSession = Depends(get_db), _: User = Depends(requir
     return {"ok": True}
 
 
+@router.delete("/saved-products")
+async def clear_saved_products(db: AsyncSession = Depends(get_db), _: User = Depends(require_admin)):
+    """Admin: clear every buyer's saved products (reset the favorites state)."""
+    result = await db.execute(delete(SavedProduct))
+    await db.commit()
+    return {"success": True, "deleted_count": result.rowcount or 0}
+
+
 @router.get("/users")
 async def list_users(
     page: int = Query(1, ge=1),

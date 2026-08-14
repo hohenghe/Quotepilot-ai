@@ -6,7 +6,7 @@ import type {
   Quote,
   DashboardStats,
 } from "@/types"
-import { getToken } from "./auth"
+import { getToken, logout } from "./auth"
 
 function getApiBaseUrl(): string {
   let url = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:8000"
@@ -41,6 +41,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   if (!res.ok) {
+    if (res.status === 401) {
+      logout()
+    }
     const text = await res.text()
     throw new Error(`API error ${res.status}: ${text.slice(0, 200)}`)
   }
@@ -395,6 +398,11 @@ export async function adminListInquiries(
 
 export async function adminResetAll(): Promise<void> {
   await request("/api/admin/reset", { method: "DELETE" })
+}
+
+export async function adminClearSavedProducts(): Promise<number> {
+  const data = await request<{ success: boolean; deleted_count: number }>("/api/admin/saved-products", { method: "DELETE" })
+  return data.deleted_count
 }
 
 // ── Seller Inquiries ──────────────────────────────────────────────

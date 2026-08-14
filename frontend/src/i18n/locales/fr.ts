@@ -256,6 +256,8 @@ const fr = {
     tableUser: "Utilisateur",
     emptyAccounts: "Aucun compte",
     emptyReviews: "Aucun avis",
+    showAll: "Tout afficher",
+    tableStatus: "Statut",
     deleteInquiriesConfirm: (n: number) => `Supprimer ${n} enregistrement(s) de demande ? Cette action est irréversible.`,
     deleteAccountsConfirm: (n: number) => `Supprimer ${n} compte(s) ? Cette action est irréversible.`,
     deletedCount: (n: number) => `${n} supprimé(s)`,
@@ -294,6 +296,7 @@ const fr = {
     rating: "Note",
     report: "Signaler",
     reported: "Signalé",
+    normal: "Normal",
     reportSuccess: "Avis signalé à l'administrateur",
   },
   language: {

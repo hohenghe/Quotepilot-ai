@@ -256,6 +256,8 @@ const es = {
     tableUser: "Usuario",
     emptyAccounts: "No hay cuentas",
     emptyReviews: "No hay reseñas",
+    showAll: "Mostrar todos",
+    tableStatus: "Estado",
     deleteInquiriesConfirm: (n: number) => `¿Eliminar ${n} registro(s) de consulta? Esta acción no se puede deshacer.`,
     deleteAccountsConfirm: (n: number) => `¿Eliminar ${n} cuenta(s)? Esta acción no se puede deshacer.`,
     deletedCount: (n: number) => `${n} eliminado(s)`,
@@ -294,6 +296,7 @@ const es = {
     rating: "Calificación",
     report: "Reportar",
     reported: "Reportado",
+    normal: "Normal",
     reportSuccess: "Reseña reportada al administrador",
   },
   language: {

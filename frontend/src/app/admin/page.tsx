@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star } from "lucide-react"
+import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
 import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
@@ -53,6 +53,7 @@ export default function AdminPage() {
   const [reviews, setReviews] = useState<ReviewItem[]>([])
   const [reviewsLoading, setReviewsLoading] = useState(false)
   const [reviewsError, setReviewsError] = useState(false)
+  const [showReportedOnly, setShowReportedOnly] = useState(false)
   const [selectedInquiryIds, setSelectedInquiryIds] = useState<Set<number>>(new Set())
   const [confirmInquiriesOpen, setConfirmInquiriesOpen] = useState(false)
   const [deletingInquiries, setDeletingInquiries] = useState(false)
@@ -265,6 +266,9 @@ export default function AdminPage() {
   }
 
   const maxCategory = Math.max(1, ...Object.values(stats?.categories || {}).map(Number))
+
+  const reportedCount = reviews.filter(r => r.reported).length
+  const displayedReviews = showReportedOnly ? reviews.filter(r => r.reported) : reviews
 
   if (!authReady) {
     return <PageLoader />
@@ -616,8 +620,23 @@ export default function AdminPage() {
 
       {tab === "reviews" && (
         <>
-          <header className="mb-6">
+          <header className="mb-6 flex items-center justify-between gap-4 flex-wrap">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.admin.reviews}</h1>
+            <div className="flex items-center gap-2">
+              <button
+                className={!showReportedOnly ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
+                onClick={() => setShowReportedOnly(false)}
+              >
+                {t.admin.showAll}
+              </button>
+              <button
+                className={showReportedOnly ? "btn-primary btn-sm" : "btn-secondary btn-sm"}
+                onClick={() => setShowReportedOnly(true)}
+              >
+                <Flag className="w-3.5 h-3.5" />
+                {t.review.reported} ({reportedCount})
+              </button>
+            </div>
           </header>
           {reviewsLoading ? (
             <TableSkeleton rows={5} cols={5} />
@@ -626,7 +645,7 @@ export default function AdminPage() {
               title={t.common.somethingWentWrong}
               action={<button className="btn-secondary" onClick={loadReviews}>{t.common.tryAgain}</button>}
             />
-          ) : reviews.length === 0 ? (
+          ) : displayedReviews.length === 0 ? (
             <EmptyState icon={<Star className="w-5 h-5" />} title={t.admin.emptyReviews} />
           ) : (
             <div className="card overflow-hidden">
@@ -638,11 +657,12 @@ export default function AdminPage() {
                       <th className="th">{t.admin.tableUser}</th>
                       <th className="th">{t.admin.tableRating}</th>
                       <th className="th">{t.admin.tableMessage}</th>
+                      <th className="th">{t.admin.tableStatus}</th>
                       <th className="th"></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {reviews.map(r => (
+                    {displayedReviews.map(r => (
                       <tr key={r.id} className="hover:bg-slate-50/70">
                         <td className="td font-medium text-slate-900 max-w-[200px]">
                           <div className="truncate">{r.seller_name || r.seller_email || "—"}</div>
@@ -651,6 +671,13 @@ export default function AdminPage() {
                         <td className="td text-slate-500">★ {r.rating.toFixed(1)}</td>
                         <td className="td max-w-[320px]">
                           <div className="truncate text-slate-700">{r.content || "—"}</div>
+                        </td>
+                        <td className="td">
+                          {r.reported ? (
+                            <span className="badge badge-danger">{t.review.reported}</span>
+                          ) : (
+                            <span className="badge badge-neutral">{t.review.normal}</span>
+                          )}
                         </td>
                         <td className="td text-right">
                           <button className="btn-secondary btn-sm" onClick={() => handleDeleteReview(r.id)}>

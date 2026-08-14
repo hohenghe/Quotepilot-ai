@@ -255,6 +255,8 @@ const zhTW = {
     tableUser: "使用者",
     emptyAccounts: "暫無帳號",
     emptyReviews: "暫無評價",
+    showAll: "顯示全部",
+    tableStatus: "狀態",
     deleteInquiriesConfirm: (n: number) => `將刪除 ${n} 條詢盤記錄，此操作不可撤銷。`,
     deleteAccountsConfirm: (n: number) => `將刪除 ${n} 個帳號，此操作不可撤銷。`,
     deletedCount: (n: number) => `已刪除 ${n} 項`,
@@ -291,6 +293,7 @@ const zhTW = {
     rating: "評分",
     report: "檢舉",
     reported: "已檢舉",
+    normal: "正常",
     reportSuccess: "已檢舉給管理員",
   },
   language: {

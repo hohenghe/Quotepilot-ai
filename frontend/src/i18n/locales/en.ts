@@ -256,6 +256,8 @@ const en = {
     tableUser: "User",
     emptyAccounts: "No accounts",
     emptyReviews: "No reviews",
+    showAll: "Show all",
+    tableStatus: "Status",
     deleteInquiriesConfirm: (n: number) => `Delete ${n} inquiry record(s)? This action cannot be undone.`,
     deleteAccountsConfirm: (n: number) => `Delete ${n} account(s)? This action cannot be undone.`,
     deletedCount: (n: number) => `${n} deleted`,
@@ -294,6 +296,7 @@ const en = {
     rating: "Rating",
     report: "Report",
     reported: "Reported",
+    normal: "Normal",
     reportSuccess: "Review reported to admin",
   },
   language: {

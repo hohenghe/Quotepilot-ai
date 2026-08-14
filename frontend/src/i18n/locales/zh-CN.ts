@@ -255,6 +255,8 @@ const zhCN = {
     tableUser: "用户",
     emptyAccounts: "暂无账号",
     emptyReviews: "暂无评价",
+    showAll: "显示全部",
+    tableStatus: "状态",
     deleteInquiriesConfirm: (n: number) => `将删除 ${n} 条询盘记录，此操作不可撤销。`,
     deleteAccountsConfirm: (n: number) => `将删除 ${n} 个账号，此操作不可撤销。`,
     deletedCount: (n: number) => `已删除 ${n} 项`,
@@ -291,6 +293,7 @@ const zhCN = {
     rating: "评分",
     report: "举报",
     reported: "已举报",
+    normal: "正常",
     reportSuccess: "已举报给管理员",
   },
   language: {

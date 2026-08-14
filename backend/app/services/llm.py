@@ -9,12 +9,12 @@ from app.core.config import settings
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [LLM] %(message)s")
 logger = logging.getLogger(__name__)
 
-TRANSLATE_SYSTEM = "You are a professional translator. Translate the following text to English. Return ONLY the English translation, nothing else — no explanations, no notes."
-
-ANALYSIS_SYSTEM = """You are an AI assistant for an international trade company. Extract structured information from customer inquiry messages.
+ANALYSIS_SYSTEM = """You are an AI assistant for an international trade company.
+Translate the customer inquiry into English (if it is not already in English), then extract structured information from it.
 
 Return ONLY valid JSON in this exact format:
 {
+  "translation": "English translation of the inquiry (empty string if the inquiry is already in English)",
   "productCategory": "one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other",
   "quantity": number or null,
   "technicalParams": { "key": "value" } like voltage, plugType, wattage, dimensions, colorTemperature, material,
@@ -42,7 +42,13 @@ Return ONLY valid JSON:
 Use professional tone. Include: greeting, thank you, product recommendations with specs, estimated total, payment terms (T/T 30/70), shipping terms (FOB), questions to confirm, closing with contact info."""
 
 
-async def _call_llm(system_prompt: str, user_message: str, json_mode: bool = False) -> str:
+async def _call_llm(
+    system_prompt: str,
+    user_message: str,
+    json_mode: bool = False,
+    operation: str = "llm",
+    max_tokens: int = 2000,
+) -> str:
     body: dict[str, Any] = {
         "model": settings.LLM_MODEL,
         "messages": [
@@ -50,7 +56,7 @@ async def _call_llm(system_prompt: str, user_message: str, json_mode: bool = Fal
             {"role": "user", "content": user_message},
         ],
         "temperature": 0.3,
-        "max_tokens": 2000,
+        "max_tokens": max_tokens,
     }
 
     if json_mode:
@@ -70,7 +76,31 @@ async def _call_llm(system_prompt: str, user_message: str, json_mode: bool = Fal
             raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
 
         data = resp.json()
+        _log_usage(data, operation)
         return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+
+def _log_usage(data: dict[str, Any], operation: str) -> None:
+    """Log token/cache usage metadata only (never prompt or response content)."""
+    usage = data.get("usage") or {}
+    prompt_tokens = usage.get("prompt_tokens", 0)
+    hit = usage.get("prompt_cache_hit_tokens", 0)
+    miss = usage.get("prompt_cache_miss_tokens", 0)
+    completion = usage.get("completion_tokens", 0)
+    details = usage.get("completion_tokens_details") or {}
+    reasoning = details.get("reasoning_tokens", 0)
+
+    total = hit + miss
+    if total == 0 and prompt_tokens:
+        # Some providers only expose total prompt tokens without cache breakdown.
+        miss = prompt_tokens
+        total = prompt_tokens
+    hit_rate = (hit / total * 100.0) if total else 0.0
+
+    logger.info(
+        "LLM usage model=%s operation=%s prompt_tokens=%s cache_hit=%s cache_miss=%s completion=%s reasoning=%s cache_hit_rate=%.2f%%",
+        settings.LLM_MODEL, operation, prompt_tokens, hit, miss, completion, reasoning, hit_rate,
+    )
 
 
 def _parse_json_response(response: str) -> dict[str, Any]:
@@ -84,10 +114,11 @@ def _parse_json_response(response: str) -> dict[str, Any]:
 
 
 async def _analyze_with_ai(raw_message: str) -> dict[str, Any]:
-    response = await _call_llm(ANALYSIS_SYSTEM, raw_message, json_mode=True)
+    response = await _call_llm(ANALYSIS_SYSTEM, raw_message, json_mode=True, operation="inquiry_analysis", max_tokens=1200)
     parsed = _parse_json_response(response)
 
     return {
+        "translation": (parsed.get("translation") or "").strip(),
         "product_category": parsed.get("productCategory", "other"),
         "quantity": parsed.get("quantity") if isinstance(parsed.get("quantity"), (int, float)) else None,
         "technical_params": parsed.get("technicalParams") if isinstance(parsed.get("technicalParams"), dict) else {},
@@ -99,28 +130,13 @@ async def _analyze_with_ai(raw_message: str) -> dict[str, Any]:
     }
 
 
-def _has_non_ascii(text: str) -> bool:
-    return any(ord(c) > 127 for c in text)
-
-
-async def _translate_to_english(text: str) -> str:
-    return await _call_llm(TRANSLATE_SYSTEM, text, json_mode=False)
-
-
 async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
-    message = raw_message
-    translated = False
-
-    if _has_non_ascii(message):
-        logger.warning("Non-English detected, translating...")
-        message = await _translate_to_english(message)
-        translated = True
-        logger.warning("Translated inquiry: %s", message[:200])
-
+    # Translation and structured analysis are produced in a single request so
+    # non-English inquiries no longer cost two separate LLM calls.
     logger.warning("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
-    result = await _analyze_with_ai(message)
+    result = await _analyze_with_ai(raw_message)
     result["ai_used"] = True
-    result["translated"] = translated
+    result["translated"] = bool(result.get("translation"))
     return result
 
 
@@ -150,7 +166,7 @@ async def _generate_quote_with_ai(
     if additional_notes:
         user_msg += f"\n\nAdditional Notes: {additional_notes}"
 
-    response = await _call_llm(QUOTE_SYSTEM, user_msg, json_mode=True)
+    response = await _call_llm(QUOTE_SYSTEM, user_msg, json_mode=True, operation="quote_generation", max_tokens=2000)
     parsed = _parse_json_response(response)
 
     return {

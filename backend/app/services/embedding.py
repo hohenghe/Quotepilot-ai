@@ -13,6 +13,11 @@ logger = logging.getLogger(__name__)
 
 _init_logged = False
 
+# Lightweight in-memory cache for query embeddings (repeated identical queries
+# don't re-hit the embedding API). Bounded, FIFO eviction; keyed by model+dim+text.
+_query_embedding_cache: dict[str, list[float]] = {}
+_QUERY_EMBEDDING_CACHE_MAX = 256
+
 
 def build_product_embedding_text(
     name: str = "",
@@ -201,6 +206,11 @@ async def generate_query_embedding(text: str) -> list[float]:
     if not is_embedding_available():
         raise RuntimeError("Embedding service is not configured")
 
+    cache_key = f"{settings.EMBEDDING_MODEL}|{settings.EMBEDDING_DIM}|{text}"
+    cached = _query_embedding_cache.get(cache_key)
+    if cached is not None:
+        return cached
+
     vectors = await embedding_api_call_with_retry([text])
     if not vectors or not vectors[0]:
         raise RuntimeError("Embedding API returned empty result")
@@ -208,7 +218,12 @@ async def generate_query_embedding(text: str) -> list[float]:
         raise RuntimeError(
             f"Embedding dimension mismatch: got {len(vectors[0])}, expected {settings.EMBEDDING_DIM}"
         )
-    return vectors[0]
+    vec = vectors[0]
+
+    if len(_query_embedding_cache) >= _QUERY_EMBEDDING_CACHE_MAX:
+        _query_embedding_cache.pop(next(iter(_query_embedding_cache)))
+    _query_embedding_cache[cache_key] = vec
+    return vec
 
 
 async def get_embedding_stats(db: AsyncSession) -> dict:

@@ -341,7 +341,7 @@ const zhCN = {
     identifier: "邮箱 / 手机号 / ID",
     phoneRequired: "请输入手机号",
     companyRequired: "卖家必须填写公司名称",
-    passwordTooShort: "密码至少 6 位",
+    passwordTooShort: "密码至少 8 位",
     companyNameRequired: "公司名称 *",
     companyNameOptional: "公司名称（选填）",
     showPassword: "显示",

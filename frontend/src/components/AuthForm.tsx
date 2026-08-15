@@ -55,7 +55,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
       setLocalError(t.auth.passwordMismatch)
       return
     }
-    if (password.length < 6) {
+    if (password.length < 8) {
       setLocalError(t.auth.passwordTooShort)
       return
     }

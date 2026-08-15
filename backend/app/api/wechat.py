@@ -115,8 +115,8 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
     openid = session["openid"]
     unionid = session.get("unionid")
 
-    if len(data.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
     if not data.phone or not data.phone.strip():
         raise HTTPException(status_code=400, detail="Phone number is required")
     if not data.name or not data.name.strip():

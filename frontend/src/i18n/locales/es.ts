@@ -344,7 +344,7 @@ const es = {
     identifier: "Correo / Teléfono / ID",
     phoneRequired: "El número de teléfono es obligatorio",
     companyRequired: "El nombre de la empresa es obligatorio para vendedores",
-    passwordTooShort: "La contraseña debe tener al menos 6 caracteres",
+    passwordTooShort: "La contraseña debe tener al menos 8 caracteres",
     companyNameRequired: "Nombre de Empresa *",
     companyNameOptional: "Nombre de Empresa (opcional)",
     showPassword: "Mostrar",

@@ -341,7 +341,7 @@ const zhTW = {
     identifier: "信箱 / 手機號碼 / ID",
     phoneRequired: "請輸入手機號碼",
     companyRequired: "賣家必須填寫公司名稱",
-    passwordTooShort: "密碼至少 6 位",
+    passwordTooShort: "密碼至少 8 位",
     companyNameRequired: "公司名稱 *",
     companyNameOptional: "公司名稱（選填）",
     showPassword: "顯示",

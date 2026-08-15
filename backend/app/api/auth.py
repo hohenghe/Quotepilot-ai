@@ -149,8 +149,8 @@ async def _recently_requested(db: AsyncSession, user_ids: list[int], token_type:
 
 @router.post("/register")
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
-    if len(data.password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(data.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     if data.role not in ("buyer", "seller"):
         raise HTTPException(status_code=400, detail="Invalid role")
@@ -207,7 +207,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         select(User).where(
             User.is_active == True,
             or_(
-                User.email == data.identifier,
+                func.lower(User.email) == data.identifier.lower(),
                 User.phone == data.identifier,
                 User.uid == data.identifier,
             ),
@@ -336,8 +336,8 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
 
 @router.post("/reset-password")
 async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(get_db)):
-    if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     token = await _find_token(db, data.token, "password_reset")
     if not token:
@@ -366,8 +366,8 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_auth),
 ):
-    if len(data.new_password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(data.new_password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     if not verify_password(data.current_password, user.password_hash):
         raise HTTPException(status_code=400, detail="Current password is incorrect")

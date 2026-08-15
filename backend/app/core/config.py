@@ -17,6 +17,12 @@ class Settings(BaseSettings):
     OPENAI_BASE_URL: str = "https://api.openai.com/v1"
     LLM_MODEL: str = "gpt-4o-mini"
 
+    # Vision model (multimodal product recognition). Uses the dedicated
+    # AI_VISION_* settings when set, otherwise falls back to OPENAI_* / LLM_MODEL.
+    AI_VISION_MODEL: str = ""
+    AI_VISION_API_KEY: str = ""
+    AI_VISION_BASE_URL: str = ""
+
     JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
 
     # WeChat Mini Program login (jscode2session)

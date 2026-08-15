@@ -3,6 +3,7 @@ QuotePilot AI — Backend API Server
 Main application entry point.
 """
 import asyncio
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -21,7 +22,10 @@ from app.api.files import router as files_router
 from app.api.sellers import router as sellers_router
 from app.api.wechat import router as wechat_router
 
+logger = logging.getLogger(__name__)
+
 _worker_task: asyncio.Task | None = None
+_cleanup_task: asyncio.Task | None = None
 
 
 async def _embedding_worker():
@@ -38,19 +42,47 @@ async def _embedding_worker():
             await asyncio.sleep(30)
 
 
+async def _account_cleanup_worker():
+    """Background worker: periodically purge abandoned unverified seller accounts."""
+    from app.services.account_cleanup import (
+        cleanup_expired_unverified_sellers,
+        CLEANUP_INTERVAL_SECONDS,
+    )
+    while True:
+        try:
+            result = await cleanup_expired_unverified_sellers()
+            if result["deleted"]:
+                logger.info(
+                    "Purged %s unverified seller account(s) and %s WeChat binding(s)",
+                    result["deleted"],
+                    result.get("wechat_deleted", 0),
+                )
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+        except Exception:
+            await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _worker_task
+    global _cleanup_task
     await init_db()
     await _reset_stuck_embeddings()
     await _ensure_admin()
     await _ensure_test_accounts()
     _worker_task = asyncio.create_task(_embedding_worker())
+    _cleanup_task = asyncio.create_task(_account_cleanup_worker())
     yield
     if _worker_task:
         _worker_task.cancel()
         try:
             await _worker_task
+        except asyncio.CancelledError:
+            pass
+    if _cleanup_task:
+        _cleanup_task.cancel()
+        try:
+            await _cleanup_task
         except asyncio.CancelledError:
             pass
 

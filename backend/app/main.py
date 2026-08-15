@@ -64,6 +64,14 @@ async def _account_cleanup_worker():
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
+async def _close_ai_client():
+    try:
+        from app.services.vision import close_ai_client
+        await close_ai_client()
+    except Exception:
+        pass
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _worker_task
@@ -87,6 +95,7 @@ async def lifespan(app: FastAPI):
             await _cleanup_task
         except asyncio.CancelledError:
             pass
+    await _close_ai_client()
 
 
 async def _ensure_admin():

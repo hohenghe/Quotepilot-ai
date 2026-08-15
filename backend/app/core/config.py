@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     AI_VISION_API_KEY: str = ""
     AI_VISION_BASE_URL: str = ""
 
+    # Two-stage product recognition: dedicated OCR model + vision model.
+    # Both reuse AI_VISION_API_KEY / AI_VISION_BASE_URL (same provider).
+    AI_OCR_MODEL: str = ""
+    AI_OCR_TIMEOUT: int = 45
+    AI_VISION_TIMEOUT: int = 60
+    AI_MAX_IMAGE_DIMENSION: int = 2048
+
     JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
 
     # WeChat Mini Program login (jscode2session)

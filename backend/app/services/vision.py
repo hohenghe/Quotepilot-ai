@@ -1,15 +1,17 @@
-"""Vision: recognize product attributes from a product photo via a multimodal LLM.
+"""Two-stage product recognition: OCR -> vision understanding -> sanitized fields.
 
-This module never touches the database. It only:
-  1. calls the OpenAI-compatible chat/completions API with an image,
-  2. parses + sanitizes the model's JSON into user-editable Product fields.
+Pipeline:
+  preprocess image (EXIF + downscale) -> OCR model (extract readable text)
+  -> vision model (understand product + map to Product fields) -> sanitize.
 
-The API key is read from settings (OPENAI_API_KEY) and never returned to callers.
+This module never touches the database and never returns provider secrets.
 """
 import base64
+import io
 import json
 import logging
 import re
+import time
 from typing import Any
 
 import httpx
@@ -35,47 +37,70 @@ _FIELD_KEYS = [
     "price_range_high", "pricing", "lead_time_days",
 ]
 
-VISION_SYSTEM_PROMPT = """You are a product information extractor for an international trade platform. Analyze the provided product photo and extract only the product attributes that are clearly identifiable from the image.
+OCR_SYSTEM_PROMPT = """You are a precise OCR engine. Extract ALL readable text from the image.
 
 Rules:
-- Only return information you can actually confirm from the image.
-- Return null for any field you cannot confirm. Never guess or fill in from general knowledge.
-- Do not fabricate brand, model, dimensions, weight, or any value not visible.
-- If readable text appears in the image (labels, spec sheets, packaging), you may extract it (name, technical specs, certifications like CE/RoHS, SKU).
-- Numeric business fields (moq, unit_price, price_range_low, price_range_high, lead_time_days) may ONLY be filled when the image explicitly shows the value (e.g. "MOQ: 100 pcs", "$2.50 / piece"). Do NOT estimate pricing or MOQ from product appearance.
-- If the image contains multiple products, focus on the main product; if you cannot determine a main product, return all fields as null.
-- If the image is clearly not a product (a person, landscape, text document without a product), return all fields as null.
+- Transcribe every visible piece of text: product name, model, SKU, part number, certification marks and numbers (CE, RoHS, UL, FCC...), technical parameters, values with their units (voltage, wattage, dimensions, weight...).
+- Preserve the original text as faithfully as possible. Do not translate, paraphrase, correct spelling, or reorder.
+- Keep digits, units, symbols, and line structure where possible.
+- Do not guess or complete blurred / illegible text; skip it.
+- Do not add any commentary, explanation, or JSON. Output ONLY the recognized text."""
+
+VISION_SYSTEM_PROMPT = """You are a product attribute extraction system for an international trade platform.
+
+Your task is NOT to guess product information. Extract only the product attributes you can CONFIRM from the provided product image and its OCR text.
+
+Strict rules:
+- Only fill fields you can confirm from the image or the OCR text.
+- Return null for any field you cannot confirm.
+- Do NOT guess prices, MOQ, lead time, or any business number based on general product knowledge.
+- sku: MUST come from text visible in the image or OCR. Never invent a SKU.
+- certifications: MUST come from certification marks, numbers, or text explicitly visible in the image/OCR.
+- Do NOT fabricate brand, model, dimensions, weight, material, or any field not in the schema below.
+- Do NOT output any field that is not in the schema below.
+- If the image is not a product, or nothing can be confirmed, return all fields as null.
 - Return ONLY valid JSON. No markdown, no code fences, no extra text.
 
-Return JSON in exactly this shape:
+category must be exactly one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other. Otherwise return null.
+
+Return JSON in exactly this shape (all fields nullable):
 {
-  "name": "string|null",
-  "sku": "string|null",
-  "category": "one of led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other, or null",
-  "description": "string|null",
-  "technical_specs": "string|null",
-  "certifications": "string|null",
-  "moq": "number|null",
-  "unit_price": "number|null",
-  "price_range_low": "number|null",
-  "price_range_high": "number|null",
-  "pricing": "string|null",
-  "lead_time_days": "number|null"
+  "name": null,
+  "sku": null,
+  "category": null,
+  "description": null,
+  "technical_specs": null,
+  "certifications": null,
+  "moq": null,
+  "unit_price": null,
+  "price_range_low": null,
+  "price_range_high": null,
+  "pricing": null,
+  "lead_time_days": null
 }
 """
 
 
-def _vision_model() -> str:
-    return settings.AI_VISION_MODEL
+# ── HTTP client (module-level, reused connection pool) ──────────────────────
+
+_client: httpx.AsyncClient | None = None
 
 
-def _vision_api_key() -> str:
-    return settings.AI_VISION_API_KEY
+def get_client() -> httpx.AsyncClient:
+    global _client
+    if _client is None or _client.is_closed:
+        _client = httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=10.0))
+    return _client
 
 
-def _vision_base_url() -> str:
-    return settings.AI_VISION_BASE_URL
+async def close_ai_client() -> None:
+    global _client
+    if _client is not None:
+        await _client.aclose()
+        _client = None
 
+
+# ── JSON parse + sanitize ───────────────────────────────────────────────────
 
 def _parse_json(text: str) -> dict[str, Any]:
     """Parse model output to JSON, tolerating markdown fences. Never raises."""
@@ -138,11 +163,7 @@ def _empty_fields() -> dict[str, Any]:
 
 
 def sanitize_recognition(parsed: Any) -> dict[str, Any]:
-    """Whitelist + coerce model output into safe, user-editable Product fields.
-
-    Only the 12 user-editable Product fields are kept. Internal fields (id,
-    seller_id, user_id, timestamps, permissions, ...) are always dropped.
-    """
+    """Whitelist + coerce model output into safe, user-editable Product fields."""
     if not isinstance(parsed, dict):
         return _empty_fields()
 
@@ -164,58 +185,159 @@ def sanitize_recognition(parsed: Any) -> dict[str, Any]:
     }
 
 
-async def recognize_product_image(image_bytes: bytes, mime_type: str) -> dict[str, Any]:
-    """Send a single product image to the vision model and return sanitized fields."""
-    model = _vision_model()
-    api_key = _vision_api_key()
-    base_url = _vision_base_url()
-    if not (model and api_key and base_url):
-        logger.error(
-            "vision model not configured (AI_VISION_MODEL / AI_VISION_API_KEY / AI_VISION_BASE_URL)"
-        )
-        raise RuntimeError("vision model not configured")
+# ── Image preprocessing ─────────────────────────────────────────────────────
 
-    b64 = base64.b64encode(image_bytes).decode("ascii")
+def preprocess_image(
+    image_bytes: bytes,
+    mime_type: str,
+    max_dimension: int,
+) -> tuple[bytes, str]:
+    """Fix EXIF orientation, optionally downscale large images, re-encode to JPEG.
 
+    Small images are left at native resolution (never upscaled blindly) to keep
+    small label/spec text readable. On any error, the original bytes are returned.
+    """
+    try:
+        from PIL import Image, ImageOps
+
+        img = Image.open(io.BytesIO(image_bytes))
+        img = ImageOps.exif_transpose(img)
+
+        if img.mode not in ("RGB", "L"):
+            img = img.convert("RGB")
+
+        w, h = img.size
+        if max_dimension and max(w, h) > max_dimension:
+            ratio = max_dimension / max(w, h)
+            img = img.resize(
+                (max(1, int(w * ratio)), max(1, int(h * ratio))),
+                Image.LANCZOS,
+            )
+
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=90)
+        return buf.getvalue(), "image/jpeg"
+    except Exception as e:
+        logger.warning("image preprocessing failed (%s), using original", type(e).__name__)
+        return image_bytes, mime_type
+
+
+# ── Provider calls ──────────────────────────────────────────────────────────
+
+async def _call_chat(
+    messages: list[dict],
+    model: str,
+    timeout: float,
+    temperature: float,
+    max_tokens: int,
+    json_mode: bool = False,
+) -> tuple[str, dict]:
     body: dict[str, Any] = {
         "model": model,
-        "messages": [
-            {"role": "system", "content": VISION_SYSTEM_PROMPT},
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": "Analyze this product photo and extract the product attributes.",
-                    },
-                    {
-                        "type": "image_url",
-                        "image_url": {
-                            "url": f"data:{mime_type};base64,{b64}",
-                            "detail": "low",
-                        },
-                    },
-                ],
-            },
-        ],
-        "temperature": 0.1,
-        "max_tokens": 600,
-        "response_format": {"type": "json_object"},
+        "messages": messages,
+        "temperature": temperature,
+        "max_tokens": max_tokens,
     }
+    if json_mode:
+        body["response_format"] = {"type": "json_object"}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.post(
-            f"{base_url}/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            json=body,
+    resp = await get_client().post(
+        f"{settings.AI_VISION_BASE_URL}/chat/completions",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.AI_VISION_API_KEY}",
+        },
+        json=body,
+        timeout=timeout,
+    )
+    if resp.status_code != 200:
+        raise RuntimeError(f"AI API error {resp.status_code}")
+
+    data = resp.json()
+    content = data.get("choices", [{}])[0].get("message", {}).get("content", "") or ""
+    return content, (data.get("usage") or {})
+
+
+async def _run_ocr(data_url: str) -> tuple[str, dict]:
+    messages = [
+        {"role": "system", "content": OCR_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Extract all readable text from this image."},
+                {"type": "image_url", "image_url": {"url": data_url}},
+            ],
+        },
+    ]
+    return await _call_chat(
+        messages, settings.AI_OCR_MODEL, settings.AI_OCR_TIMEOUT,
+        temperature=0.0, max_tokens=2000, json_mode=False,
+    )
+
+
+async def _run_vision(data_url: str, ocr_text: str) -> tuple[str, dict]:
+    user_text = (
+        "Product image OCR text:\n"
+        + (ocr_text.strip() or "(no readable text recognized)")
+        + "\n\nExtract the confirmable product attributes."
+    )
+    messages = [
+        {"role": "system", "content": VISION_SYSTEM_PROMPT},
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": user_text},
+                {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
+            ],
+        },
+    ]
+    return await _call_chat(
+        messages, settings.AI_VISION_MODEL, settings.AI_VISION_TIMEOUT,
+        temperature=0.1, max_tokens=600, json_mode=True,
+    )
+
+
+# ── Orchestration ───────────────────────────────────────────────────────────
+
+async def recognize_product_image(image_bytes: bytes, mime_type: str) -> dict[str, Any]:
+    """Preprocess -> OCR -> vision -> sanitize. Returns the 12 Product fields."""
+    ocr_model = settings.AI_OCR_MODEL
+    vision_model = settings.AI_VISION_MODEL
+    if not (settings.AI_VISION_API_KEY and settings.AI_VISION_BASE_URL and ocr_model and vision_model):
+        logger.error(
+            "recognition not configured "
+            "(AI_OCR_MODEL / AI_VISION_MODEL / AI_VISION_API_KEY / AI_VISION_BASE_URL)"
         )
-        if resp.status_code != 200:
-            raise RuntimeError(f"vision API error {resp.status_code}")
+        raise RuntimeError("recognition not configured")
 
-        data = resp.json()
-        content = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    start = time.perf_counter()
 
-    return sanitize_recognition(_parse_json(content))
+    t0 = time.perf_counter()
+    processed_bytes, processed_mime = preprocess_image(
+        image_bytes, mime_type, settings.AI_MAX_IMAGE_DIMENSION
+    )
+    preprocess_ms = int((time.perf_counter() - t0) * 1000)
+
+    b64 = base64.b64encode(processed_bytes).decode("ascii")
+    data_url = f"data:{processed_mime};base64,{b64}"
+
+    t0 = time.perf_counter()
+    ocr_text, ocr_usage = await _run_ocr(data_url)
+    ocr_ms = int((time.perf_counter() - t0) * 1000)
+
+    t0 = time.perf_counter()
+    vision_content, vision_usage = await _run_vision(data_url, ocr_text)
+    vision_ms = int((time.perf_counter() - t0) * 1000)
+
+    total_ms = int((time.perf_counter() - start) * 1000)
+
+    logger.info(
+        "[PRODUCT_AI] preprocess_ms=%s ocr_ms=%s vision_ms=%s total_ms=%s "
+        "ocr_model=%s vision_model=%s "
+        "ocr_in=%s ocr_out=%s vision_in=%s vision_out=%s",
+        preprocess_ms, ocr_ms, vision_ms, total_ms, ocr_model, vision_model,
+        ocr_usage.get("prompt_tokens", 0), ocr_usage.get("completion_tokens", 0),
+        vision_usage.get("prompt_tokens", 0), vision_usage.get("completion_tokens", 0),
+    )
+
+    return sanitize_recognition(_parse_json(vision_content))

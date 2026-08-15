@@ -23,6 +23,7 @@ export default function BuyerPage() {
   const [authMode, setAuthMode] = useState<"login" | "register">("login")
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState<string | null>(null)
+  const [showAuth, setShowAuth] = useState(false)
   const [sentInquiries, setSentInquiries] = useState<Set<number>>(new Set())
   const [sendingId, setSendingId] = useState<number | null>(null)
 
@@ -77,13 +78,24 @@ export default function BuyerPage() {
 
   const user = authReady ? getUser() : null
   const loggedIn = authReady && isAuthenticated()
+  const isGuest = authReady && !isAuthenticated()
 
-  const nav = [
-    { key: "discover", label: t.nav.discover, icon: Search },
-    { key: "inquiries", label: t.nav.myInquiries, icon: Mail },
-    { key: "saved", label: t.nav.saved, icon: Heart },
-    { key: "profile", label: t.nav.profile, icon: User },
-  ]
+  const nav = isGuest
+    ? [{ key: "discover", label: t.nav.discover, icon: Search }]
+    : [
+        { key: "discover", label: t.nav.discover, icon: Search },
+        { key: "inquiries", label: t.nav.myInquiries, icon: Mail },
+        { key: "saved", label: t.nav.saved, icon: Heart },
+        { key: "profile", label: t.nav.profile, icon: User },
+      ]
+
+  const requireLogin = () => {
+    if (isGuest) {
+      toast.push("error", t.buyer.loginRequired)
+      return false
+    }
+    return true
+  }
 
   const handleAuth = async (data: AuthFormData): Promise<AuthSubmitResult> => {
     setAuthLoading(true)
@@ -122,6 +134,7 @@ export default function BuyerPage() {
   }
 
   const handleSendInquiry = async (productId: number) => {
+    if (!requireLogin()) return
     setSendingId(productId)
     try {
       await sendInquiryToSeller(rawMessage, productId, user?.email || undefined)
@@ -136,6 +149,7 @@ export default function BuyerPage() {
 
   const handleLogout = () => {
     logout()
+    setShowAuth(false)
     setRawMessage("")
     setResult(null)
   }
@@ -191,6 +205,7 @@ export default function BuyerPage() {
   }, [])
 
   const handleToggleSave = async (productId: number) => {
+    if (!requireLogin()) return
     if (savedIds.has(productId)) {
       try {
         await unsaveProduct(productId)
@@ -220,21 +235,7 @@ export default function BuyerPage() {
     return <PageLoader />
   }
 
-  if (!loggedIn || !user) {
-    return (
-      <AuthForm
-        mode={authMode}
-        role="buyer"
-        onSubmit={handleAuth}
-        onToggleMode={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(null) }}
-        loading={authLoading}
-        error={authError}
-        title={t.buyer.portalTitle}
-      />
-    )
-  }
-
-  if (user.role !== "buyer" && user.role !== "admin") {
+  if (loggedIn && user && user.role !== "buyer" && user.role !== "admin") {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-sm text-center">
@@ -247,13 +248,37 @@ export default function BuyerPage() {
     )
   }
 
+  if (isGuest && showAuth) {
+    return (
+      <>
+        <button
+          onClick={() => setShowAuth(false)}
+          className="fixed top-4 left-4 z-[60] btn-secondary btn-sm"
+        >
+          {t.buyer.continueAsGuest}
+        </button>
+        <AuthForm
+          mode={authMode}
+          role="buyer"
+          onSubmit={handleAuth}
+          onToggleMode={() => { setAuthMode(authMode === "login" ? "register" : "login"); setAuthError(null) }}
+          loading={authLoading}
+          error={authError}
+          title={t.buyer.portalTitle}
+        />
+      </>
+    )
+  }
+
   return (
     <DashboardShell
       nav={nav}
       active={active}
       onNavigate={setActive}
-      userEmail={user.email}
+      userEmail={user?.email ?? null}
       onSignOut={handleLogout}
+      guestMode={isGuest}
+      onSignIn={() => setShowAuth(true)}
     >
       {active === "discover" ? (
         <>
@@ -261,6 +286,15 @@ export default function BuyerPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.buyer.title}</h1>
             <p className="mt-1 text-sm text-slate-500">{t.buyer.subtitle}</p>
           </header>
+
+          {isGuest && (
+            <div className="mb-4 flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-3">
+              <p className="text-sm text-brand-800">{t.buyer.guestHint}</p>
+              <button className="btn-primary btn-sm" onClick={() => setShowAuth(true)}>
+                {t.auth.signIn}
+              </button>
+            </div>
+          )}
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
@@ -339,7 +373,7 @@ export default function BuyerPage() {
                         </div>
                         <div className="flex items-center gap-2 flex-shrink-0">
                           <span className="badge badge-success">{t.buyer.matchLabel(pct)}</span>
-                          {user.role !== "admin" && (
+                          {user?.role !== "admin" && (
                             <button
                               onClick={() => handleToggleSave(mp.product_id)}
                               className={`p-1.5 rounded-lg transition-colors ${
@@ -377,7 +411,10 @@ export default function BuyerPage() {
                         <button
                           className="btn-secondary w-full"
                           disabled={!mp.seller_id}
-                          onClick={() => setReviewTarget({ id: mp.seller_id!, name: mp.seller_name || t.buyer.seller })}
+                          onClick={() => {
+                            if (!requireLogin()) return
+                            setReviewTarget({ id: mp.seller_id!, name: mp.seller_name || t.buyer.seller })
+                          }}
                         >
                           <Star className="w-4 h-4" />
                           {t.review.title}
@@ -486,7 +523,7 @@ export default function BuyerPage() {
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.buyer.savedTitle}</h1>
           </header>
 
-          {user.role === "admin" ? (
+          {user?.role === "admin" ? (
             <EmptyState icon={<Heart className="w-5 h-5" />} title={t.common.adminNoTrading} />
           ) : savedLoading ? (
             <TableSkeleton rows={4} cols={3} />
@@ -536,7 +573,7 @@ export default function BuyerPage() {
               <div>
                 <label className="label">{t.seller.avatar}</label>
                 <div className="flex items-center gap-3">
-                  {user.avatar_url ? (
+                  {user?.avatar_url ? (
                     <img src={user.avatar_url} alt="" className="w-16 h-16 rounded-full object-cover border border-slate-200" />
                   ) : (
                     <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400">
@@ -552,7 +589,7 @@ export default function BuyerPage() {
               </div>
               <div>
                 <label className="label">{t.auth.email}</label>
-                <input className="input bg-slate-50" value={user.email} disabled />
+                <input className="input bg-slate-50" value={user?.email ?? ""} disabled />
               </div>
             </div>
           </div>
@@ -563,7 +600,7 @@ export default function BuyerPage() {
         sellerId={reviewTarget?.id ?? 0}
         sellerName={reviewTarget?.name ?? ""}
         open={reviewTarget !== null}
-        canWrite={user.role !== "admin"}
+        canWrite={user?.role !== "admin"}
         onClose={() => setReviewTarget(null)}
       />
 
@@ -572,6 +609,10 @@ export default function BuyerPage() {
         sellerName={sellerTarget?.name ?? ""}
         open={sellerTarget !== null}
         onReview={() => {
+          if (!requireLogin()) {
+            setSellerTarget(null)
+            return
+          }
           setReviewTarget({ id: sellerTarget!.id, name: sellerTarget!.name })
           setSellerTarget(null)
         }}

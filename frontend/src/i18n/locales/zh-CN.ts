@@ -169,6 +169,9 @@ const zhCN = {
     savedDesc: "在搜索结果中收藏商品，方便以后查看。",
     save: "收藏",
     unsave: "取消收藏",
+    loginRequired: "登录后可使用",
+    continueAsGuest: "以游客模式继续",
+    guestHint: "您正在以游客模式浏览。登录后可收藏商品、查看评价并发送询盘。",
   },
   seller: {
     portalTitle: "卖家中心",

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { Zap, Menu, X, LogOut } from "lucide-react"
+import { Zap, Menu, X, LogOut, LogIn } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useT } from "@/i18n/I18nProvider"
@@ -18,6 +18,8 @@ interface DashboardShellProps {
   onNavigate: (key: string) => void
   userEmail?: string | null
   onSignOut: () => void
+  guestMode?: boolean
+  onSignIn?: () => void
   children: React.ReactNode
 }
 
@@ -27,6 +29,8 @@ export default function DashboardShell({
   onNavigate,
   userEmail,
   onSignOut,
+  guestMode,
+  onSignIn,
   children,
 }: DashboardShellProps) {
   const { t } = useT()
@@ -83,19 +87,31 @@ export default function DashboardShell({
         </nav>
 
         <div className="p-3 border-t border-slate-200 space-y-2 flex-shrink-0">
-          <div className="flex items-center gap-2.5 px-2 py-1.5">
-            <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold uppercase flex-shrink-0">
-              {(userEmail?.[0] || "?").toUpperCase()}
-            </div>
-            <p className="text-sm font-medium text-slate-700 truncate">{userEmail}</p>
-          </div>
-          <button
-            onClick={onSignOut}
-            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors duration-150"
-          >
-            <LogOut className="w-5 h-5" />
-            {t.common.signOut}
-          </button>
+          {guestMode ? (
+            <button
+              onClick={onSignIn}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-white bg-brand-600 hover:bg-brand-700 transition-colors duration-150"
+            >
+              <LogIn className="w-5 h-5" />
+              {t.auth.signIn}
+            </button>
+          ) : (
+            <>
+              <div className="flex items-center gap-2.5 px-2 py-1.5">
+                <div className="w-8 h-8 rounded-full bg-brand-100 text-brand-700 flex items-center justify-center text-xs font-semibold uppercase flex-shrink-0">
+                  {(userEmail?.[0] || "?").toUpperCase()}
+                </div>
+                <p className="text-sm font-medium text-slate-700 truncate">{userEmail}</p>
+              </div>
+              <button
+                onClick={onSignOut}
+                className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900 transition-colors duration-150"
+              >
+                <LogOut className="w-5 h-5" />
+                {t.common.signOut}
+              </button>
+            </>
+          )}
         </div>
       </aside>
 

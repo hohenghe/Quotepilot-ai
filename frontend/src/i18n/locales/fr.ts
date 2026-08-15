@@ -170,6 +170,9 @@ const fr = {
     savedDesc: "Enregistrez des produits de vos résultats de recherche pour les consulter plus tard.",
     save: "Enregistrer",
     unsave: "Retirer des enregistrés",
+    loginRequired: "Connectez-vous pour utiliser cette fonction",
+    continueAsGuest: "Continuer en tant qu'invité",
+    guestHint: "Vous naviguez en tant qu'invité. Connectez-vous pour enregistrer des produits, voir les avis et envoyer des demandes.",
   },
   seller: {
     portalTitle: "Portail Vendeur",

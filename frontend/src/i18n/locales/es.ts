@@ -170,6 +170,9 @@ const es = {
     savedDesc: "Guarde productos de sus resultados de búsqueda para revisarlos más tarde.",
     save: "Guardar",
     unsave: "Quitar de guardados",
+    loginRequired: "Inicia sesión para usar esta función",
+    continueAsGuest: "Continuar como invitado",
+    guestHint: "Estás navegando como invitado. Inicia sesión para guardar productos, ver reseñas y enviar consultas.",
   },
   seller: {
     portalTitle: "Portal del Vendedor",

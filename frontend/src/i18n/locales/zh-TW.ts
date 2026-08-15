@@ -169,6 +169,9 @@ const zhTW = {
     savedDesc: "在搜尋結果中收藏商品，方便以後查看。",
     save: "收藏",
     unsave: "取消收藏",
+    loginRequired: "登入後可使用",
+    continueAsGuest: "以訪客模式繼續",
+    guestHint: "您正在以訪客模式瀏覽。登入後可收藏商品、查看評價並發送詢盤。",
   },
   seller: {
     portalTitle: "賣家中心",

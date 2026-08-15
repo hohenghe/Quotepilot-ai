@@ -170,6 +170,9 @@ const en = {
     savedDesc: "Save products from your search results to review them later.",
     save: "Save",
     unsave: "Remove from saved",
+    loginRequired: "Please sign in to use this feature",
+    continueAsGuest: "Continue as guest",
+    guestHint: "You are browsing as a guest. Sign in to save products, view reviews, and send inquiries.",
   },
   seller: {
     portalTitle: "Seller Portal",

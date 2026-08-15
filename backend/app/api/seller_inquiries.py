@@ -62,6 +62,22 @@ async def list_received(
     total_result = await db.execute(count_query)
     total = total_result.scalar() or 0
 
+    pending_result = await db.execute(
+        select(func.count(SellerInquiry.id)).where(
+            SellerInquiry.seller_id == user.id,
+            SellerInquiry.status == "pending",
+        )
+    )
+    pending_count = pending_result.scalar() or 0
+
+    replied_result = await db.execute(
+        select(func.count(SellerInquiry.id)).where(
+            SellerInquiry.seller_id == user.id,
+            SellerInquiry.status == "replied",
+        )
+    )
+    replied_count = replied_result.scalar() or 0
+
     offset = (page - 1) * page_size
     query = query.offset(offset).limit(page_size)
     result = await db.execute(query)
@@ -83,6 +99,8 @@ async def list_received(
         "page": page,
         "page_size": page_size,
         "total": total,
+        "pending_count": pending_count,
+        "replied_count": replied_count,
         "has_next": page * page_size < total,
     }
 

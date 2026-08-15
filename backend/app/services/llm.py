@@ -6,12 +6,15 @@ import httpx
 
 from app.core.config import settings, is_llm_available
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [LLM] %(message)s")
 logger = logging.getLogger(__name__)
 
-ANALYSIS_SYSTEM = """You are an AI assistant for an international trade company. Extract structured information from customer inquiry messages.
+ANALYSIS_SYSTEM = """You are an AI assistant for an international trade company.
+Translate the customer inquiry into English (if it is not already in English), then extract structured information from it.
 
 Return ONLY valid JSON in this exact format:
 {
+  "translation": "English translation of the inquiry (empty string if the inquiry is already in English)",
   "productCategory": "one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other",
   "quantity": number or null,
   "technicalParams": { "key": "value" } like voltage, plugType, wattage, dimensions, colorTemperature, material,
@@ -41,7 +44,13 @@ Use professional tone. Include: greeting, thank you, product recommendations wit
 NO_MATCH_SYSTEM = """You are a professional sales assistant. Write a polite email in English to a customer whose inquiry could not be matched to any products in the catalog. Apologize, suggest they provide more details, and offer to forward their request to product specialists. The email should be professional, warm, and solution-oriented. Return ONLY the email text, with subject line on the first line as "Subject: ..."."""
 
 
-async def _call_llm(system_prompt: str, user_message: str, json_mode: bool = False) -> str:
+async def _call_llm(
+    system_prompt: str,
+    user_message: str,
+    json_mode: bool = False,
+    operation: str = "llm",
+    max_tokens: int = 2000,
+) -> str:
     body: dict[str, Any] = {
         "model": settings.LLM_MODEL,
         "messages": [
@@ -49,7 +58,7 @@ async def _call_llm(system_prompt: str, user_message: str, json_mode: bool = Fal
             {"role": "user", "content": user_message},
         ],
         "temperature": 0.3,
-        "max_tokens": 2000,
+        "max_tokens": max_tokens,
     }
 
     if json_mode:
@@ -69,7 +78,31 @@ async def _call_llm(system_prompt: str, user_message: str, json_mode: bool = Fal
             raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
 
         data = resp.json()
+        _log_usage(data, operation)
         return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+
+
+def _log_usage(data: dict[str, Any], operation: str) -> None:
+    """Log token/cache usage metadata only (never prompt or response content)."""
+    usage = data.get("usage") or {}
+    prompt_tokens = usage.get("prompt_tokens", 0)
+    hit = usage.get("prompt_cache_hit_tokens", 0)
+    miss = usage.get("prompt_cache_miss_tokens", 0)
+    completion = usage.get("completion_tokens", 0)
+    details = usage.get("completion_tokens_details") or {}
+    reasoning = details.get("reasoning_tokens", 0)
+
+    total = hit + miss
+    if total == 0 and prompt_tokens:
+        # Some providers only expose total prompt tokens without cache breakdown.
+        miss = prompt_tokens
+        total = prompt_tokens
+    hit_rate = (hit / total * 100.0) if total else 0.0
+
+    logger.info(
+        "LLM usage model=%s operation=%s prompt_tokens=%s cache_hit=%s cache_miss=%s completion=%s reasoning=%s cache_hit_rate=%.2f%%",
+        settings.LLM_MODEL, operation, prompt_tokens, hit, miss, completion, reasoning, hit_rate,
+    )
 
 
 def _parse_json_response(response: str) -> dict[str, Any]:
@@ -87,10 +120,11 @@ def _parse_json_response(response: str) -> dict[str, Any]:
 # ═══════════════════════════════════════════════════════════════════
 
 async def _analyze_with_ai(raw_message: str) -> dict[str, Any]:
-    response = await _call_llm(ANALYSIS_SYSTEM, raw_message, json_mode=True)
+    response = await _call_llm(ANALYSIS_SYSTEM, raw_message, json_mode=True, operation="inquiry_analysis", max_tokens=1200)
     parsed = _parse_json_response(response)
 
     return {
+        "translation": (parsed.get("translation") or "").strip(),
         "product_category": parsed.get("productCategory", "other"),
         "quantity": parsed.get("quantity") if isinstance(parsed.get("quantity"), (int, float)) else None,
         "technical_params": parsed.get("technicalParams") if isinstance(parsed.get("technicalParams"), dict) else {},
@@ -228,12 +262,18 @@ async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
     if is_llm_available():
         try:
             logger.info("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
-            return await _analyze_with_ai(raw_message)
+            result = await _analyze_with_ai(raw_message)
+            result["ai_used"] = True
+            result["translated"] = bool(result.get("translation"))
+            return result
         except Exception as e:
             logger.warning("AI analyze failed, falling back to mock: %s", e)
     else:
         logger.info("LLM not configured, using mock analysis")
-    return await _analyze_mock(raw_message)
+    result = await _analyze_mock(raw_message)
+    result["ai_used"] = False
+    result["translated"] = False
+    return result
 
 
 async def generate_quote_email(
@@ -294,7 +334,7 @@ async def _generate_quote_with_ai(
     if additional_notes:
         user_msg += f"\n\nAdditional Notes: {additional_notes}"
 
-    response = await _call_llm(QUOTE_SYSTEM, user_msg, json_mode=True)
+    response = await _call_llm(QUOTE_SYSTEM, user_msg, json_mode=True, operation="quote_generation", max_tokens=2000)
     parsed = _parse_json_response(response)
 
     return {
@@ -415,6 +455,8 @@ async def _generate_no_match_with_ai(inquiry_text: str) -> str:
         NO_MATCH_SYSTEM,
         f"Customer Inquiry:\n{inquiry_text}\n\nPlease write a professional no-match response email.",
         json_mode=False,
+        operation="no_match",
+        max_tokens=600,
     )
     return response.strip()
 

@@ -69,6 +69,11 @@ class ResetPasswordRequest(BaseModel):
     new_password: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
 class AuthResponse(BaseModel):
     token: str
     user_id: int
@@ -355,6 +360,36 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
     return {"success": True, "message": "Password has been reset. You can now sign in."}
 
 
+@router.post("/change-password", response_model=AuthResponse)
+async def change_password(
+    data: ChangePasswordRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_auth),
+):
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    if not verify_password(data.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    if data.current_password == data.new_password:
+        raise HTTPException(status_code=400, detail="New password must be different from the current password")
+
+    user.password_hash = hash_password(data.new_password)
+    user.auth_version = (user.auth_version or 0) + 1
+    await db.commit()
+
+    # Issue a fresh token so the current device stays logged in while all
+    # previously issued tokens become invalid.
+    token = create_access_token(user.id, user.role, user.auth_version or 0)
+    return AuthResponse(
+        token=token, user_id=user.id, email=user.email, role=user.role,
+        name=user.name, store_name=user.store_name,
+        avatar_url=user.avatar_url, business_license_url=user.business_license_url,
+        country=user.country, phone=user.phone, uid=user.uid,
+    )
+
+
 @router.get("/me", response_model=AuthResponse)
 async def me(user: User = Depends(require_auth)):
     return AuthResponse(
@@ -379,8 +414,10 @@ async def update_me(
         user.avatar_url = data.avatar_url.strip() or None
     if data.business_license_url is not None:
         user.business_license_url = data.business_license_url.strip() or None
-    if data.phone is not None:
-        user.phone = data.phone.strip() or None
+    # Phone numbers are managed via /api/auth/phones. `users.phone` is kept as a
+    # legacy primary mirror and must not be overwritten through this endpoint.
+    # The `phone` field remains in the request schema for backward compatibility
+    # but is intentionally ignored here.
     if data.country is not None:
         user.country = data.country
     await db.commit()

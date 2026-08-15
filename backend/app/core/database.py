@@ -158,6 +158,16 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("bound_at", "TIMESTAMPTZ DEFAULT NOW()", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
+        "user_phones": [
+            ("id", "BIGSERIAL PRIMARY KEY", None),
+            ("user_id", "INTEGER NOT NULL", "users(id) ON DELETE CASCADE"),
+            ("phone", "TEXT NOT NULL", None),
+            ("is_primary", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+            ("verified", "BOOLEAN NOT NULL DEFAULT FALSE", None),
+            ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+            ("verified_at", "TIMESTAMPTZ", None),
+            ("deleted_at", "TIMESTAMPTZ", None),
+        ],
     }
 
 
@@ -217,6 +227,7 @@ async def init_db():
     from app.models.review import Review
     from app.models.auth_token import AuthToken
     from app.models.seller_wechat_account import SellerWechatAccount
+    from app.models.user_phone import UserPhone
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -303,6 +314,39 @@ async def init_db():
                 ))
             except Exception:
                 pass
+
+        # Phone numbers: backfill legacy users.phone as primary phone records.
+        # Idempotent — only inserts a row when none exists for that user/phone.
+        try:
+            await conn.execute(text(
+                "INSERT INTO user_phones (user_id, phone, is_primary, verified, created_at) "
+                "SELECT u.id, u.phone, true, true, COALESCE(u.created_at, NOW()) "
+                "FROM users u "
+                "WHERE u.phone IS NOT NULL "
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM user_phones up "
+                "    WHERE up.user_id = u.id AND up.phone = u.phone AND up.deleted_at IS NULL"
+                "  )"
+            ))
+        except Exception as e:
+            logger.warning("user_phones backfill failed: %s", e)
+
+        # Phone uniqueness: at most one active primary per user, and globally
+        # unique active phone numbers.
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_phones_active_phone "
+                "ON user_phones (phone) WHERE deleted_at IS NULL"
+            ))
+        except Exception as e:
+            logger.warning("user_phones active-phone unique index failed: %s", e)
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_user_phones_primary "
+                "ON user_phones (user_id) WHERE is_primary = true AND deleted_at IS NULL"
+            ))
+        except Exception as e:
+            logger.warning("user_phones primary unique index failed: %s", e)
 
 
 async def _migrate_embedding_dimension(conn):

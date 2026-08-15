@@ -21,6 +21,7 @@ from app.api.reviews import router as reviews_router
 from app.api.files import router as files_router
 from app.api.sellers import router as sellers_router
 from app.api.wechat import router as wechat_router
+from app.api.phones import router as phones_router
 
 logger = logging.getLogger(__name__)
 
@@ -145,6 +146,7 @@ app.include_router(reviews_router)
 app.include_router(files_router)
 app.include_router(sellers_router)
 app.include_router(wechat_router)
+app.include_router(phones_router)
 
 
 @app.get("/")

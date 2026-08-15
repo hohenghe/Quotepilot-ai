@@ -1,84 +1,63 @@
-# QuotePilot AI — 会话工作记录（2026-08-13）
+# QuotePilot AI — 会话工作记录（2026-08-14）
 
-> 本文件记录 2026-08-13 当天的开发工作，供后续 AI/开发者快速恢复上下文。
-> 当前线上：前端 `https://zhermai.com`（Vercel），后端 `https://api.zhermai.com`（Cloudflare 代理 → Railway），数据库 PostgreSQL + pgvector（Railway）。
+> 记录 2026-08-14 当天的开发工作，供后续 AI/开发者快速恢复上下文。
+> 线上：前端 `https://zhermai.com`（Vercel），后端 `https://api.zhermai.com`（Cloudflare → Railway），数据库 PostgreSQL + pgvector（Railway）。
 
-## 一、今天完成的主要工作
+## 一、最近完成的主要工作
 
-### 1. 后端基础改造
-- **文件解析**：`file_parser.py` 由 mock 数据改为真实解析 CSV/XLSX/DOCX/PDF（`.xls`/`.doc` 明确拒绝）。
-- **去掉 mock LLM**：`llm.py` 删除规则引擎，LLM/API 失败直接抛异常，无降级。
-- **文件存储抽象**：`services/storage.py` 提供 `StorageService`（LocalStorage / R2Storage）+ `get_storage()`。
-- **真实集成测试**：`tests/test_inquiry_integration.py`（需 Docker PostgreSQL 运行）。
+### 1. 卖家评价改造（对商家评价）
+- 删除「商品评价」，改为**对商家评价**（`reviews.seller_id`，弃用 `product_id`，启动迁移 DROP 该列）。
+- 店铺得分 = 各评价**加权平均**：权重 `1 + min(字数/50, 2) + 有图片 +1`（`services/rating.py`）。
+- 匹配结果展示卖家名，可点击进入 `SellerModal` 浏览该卖家全部商品（新增 `GET /api/sellers/{id}/products`）。
+- 卖家可自定义**店铺名**（`store_name`，默认公司名）；根路径 `/` 重定向 `/buyer`；买家登录页密码下方「我是卖家」跳 `/seller`；admin 仅能通过 `/admin` 进入。
 
-### 2. 前端 UI/UX 重构（设计系统）
-- 统一 Design System（品牌蓝 `#2563EB`，`globals.css` 组件类）。
-- 三端共用 `DashboardShell`（角色侧边栏 + 移动端 drawer + 顶栏）。
-- 新增共享组件：`StatCard` / `EmptyState` / `LoadingSkeleton` / `ConfirmDialog` / `Toast` / `StatusBadge` / `PageLoader` / `ReviewModal`。
-- Buyer/Seller/Admin 三页重写；i18n 5 语言（en/zh-CN/zh-TW/es/fr）全部补齐。
-- 修复 hydration（`authReady` 门控）、LanguageSwitcher 定位问题。
+### 2. 邮箱验证 + 密码找回（Brevo）
+- 新增 `auth_tokens` 表（一次性 token，库中只存 SHA-256）+ `users.email_verified_at` + `users.auth_version`。
+- 注册不再直接发 JWT，改为发验证邮件；未验证登录返回 403（admin 豁免）。
+- 新增端点：`/verify-email`、`/resend-verification`、`/forgot-password`、`/reset-password`。
+- 邮件服务 `services/email.py`（Brevo Transactional API，httpx）；token 24h/30min，一次性，改密后旧 JWT 失效（auth_version）；forgot/resend 防邮箱枚举统一返回 + 60s 后端限流。
+- 前端新增 `/verify-email`、`/forgot-password`、`/reset-password` 页面 + AuthForm 忘记密码链接/注册后验证提示。
 
-### 3. 账号体系（buyer / seller / admin 三端分离）
-- 后端角色：`buyer` / `seller` / `admin`；`require_buyer` / `require_seller` / `require_admin`（admin 为超管可进任意端）。
-- 同一邮箱可分别注册 buyer 与 seller（`(email, role)` 组合唯一）。
-- 手机号必填（buyer+seller）；公司名 seller 必填、buyer 选填。
-- 登录：邮箱 / 手机号 / 唯一 ID（`uid`，注册时自动生成）+ 密码；不用公司名。
-- Admin 最高权限：`DELETE /api/admin/reset` 一键清空询盘/商品/账号。
-- 测试账号：`test@test.com`(buyer) / `seller@test.com`(seller) / `admin@test.com`(admin)，密码均为 `test1234`。
+### 3. 商品图片 / 头像 / 营业执照 / 手动新增商品
+- `products.images`（最多 10 张）、`users.avatar_url`、`users.business_license_url` 列 + 幂等迁移。
+- `POST /api/files/upload` 增加 `kind`（review/product/avatar/license）→ R2 不同前缀目录。
+- 新增 `POST /api/products`（手动新增商品，无需文件）+ `ProductFormModal`（新增/编辑 + 10 图上传）。
+- 买家/卖家头像上传；卖家营业执照上传（非强制）。
 
-### 4. 询盘 / 评价 / 数据指标
-- Seller 询盘分页（Load more）、Buyer 询盘历史 `GET /api/inquiries/buyer`。
-- Admin 商品表带 seller 信息；Admin 端「产品目录/询盘记录/账号」三处批量删除（含全选）。
-- **评价系统**：`reviews` 表 + 打分（5 分制，0.1 精度）/ 文字 / 图片。
-  - 商品评分 = 该商品评价平均分；店铺得分 = 商品评分按询盘量加权平均（`services/rating.py`）。
-  - buyer 可写/删自己的评论；seller 只能看+举报；admin 可删任意评论。
-- **收藏量 / 浏览量**：`products.view_count` 列（匹配成功界面出现即 +1）；`favorite_count` 由 `saved_products` 实时统计，三端可见（seller 只见自己商品）。
+### 4. 收藏界面修复 + 清空收藏
+- 修复 `/api/saved-products` 500：`list_saved` 原来在外层同时 select `SavedProduct` + 关联子查询引用同一张表，SQLAlchemy 生成冲突 SQL；改为批量 GROUP BY 统计 favorite_count。
+- 新增 `DELETE /api/admin/saved-products`（清空所有收藏）+ 管理端危险区按钮；`request()` 对 401 自动登出；收藏页显示真实错误信息。
 
-### 5. 文件存储迁移到 Cloudflare R2
-- 评论图片上传由 Railway 本地磁盘改为 **Cloudflare R2**（`quotepilot-files` bucket）。
-- `services/storage.py` 新增 `upload_file` / `delete_file` / `get_public_url`（S3 兼容 API，boto3）。
-- 对象 key 规范：`reviews/{uuid}.{ext}`（后端生成 UUID，客户端不能指定 key）。
-- 环境变量：`R2_ACCOUNT_ID` / `R2_ACCESS_KEY_ID` / `R2_SECRET_ACCESS_KEY` / `R2_BUCKET_NAME` / `R2_PUBLIC_BASE_URL`（endpoint 由 account id 构造）。
-- 返回完整公开 URL `https://img.zhermai.com/reviews/<uuid>.jpg`；前端 `uploadImage` API 不变。
-- 旧的 `GET /api/files/images/{filename}` 保留作兼容（服务历史本地图片）。
-- 图片校验：MIME 白名单（jpeg/png/webp/gif）+ 5MB 上限。
+### 5. AI 成本优化
+- `analyze_inquiry` 合并「翻译 + 结构化提取」为**单次 LLM 请求**（非英文从 2 次降到 1 次，翻译保留在输出）。
+- `llm.py` 增加 usage 日志（`model/operation/prompt_tokens/cache_hit/cache_miss/completion/reasoning/cache_hit_rate`）。
+- 按任务设 `max_tokens`（inquiry_analysis=1200、quote_generation=2000）。
+- `embedding.py` 增加 query embedding 内存缓存（有界 256）。
 
-### 6. Bug 修复
-- 询价 "Failed to fetch"：`seller_inquiries.inquiry_id` 由 `nullable=False` 改为可空 + 启动自迁移 DROP NOT NULL。
-- Buyer 页 `/api/saved-products` 无限请求：effect 依赖由 `[user, ...]`（对象引用每次 render 变化）改为 `[user?.user_id, user?.role, ...]`（原始值）。
+### 6. 跨语言检索 benchmark（已按需求移除）
+- 曾新增 `scripts/benchmark_retrieval.py` + 中文测试商品/查询，验证 `text-embedding-v4` 跨语言检索；后按用户要求连同测试数据一并移除。
 
 ## 二、当前架构要点
-- 前端 `NEXT_PUBLIC_API_BASE_URL=https://api.zhermai.com`；后端 CORS 放开。
-- 数据库自迁移（`init_db()` 的 `_sync_columns` + 各 ad-hoc ALTER）在每次启动时执行。
-- LLM/Embedding key、R2 凭证、JWT secret 只存在于 Railway 环境变量，不落代码。
-- 文件存储：评论图片走 R2；CSV 商品上传仍走本地 `StorageService`（`STORAGE_BACKEND=local`）。
+- 数据库自迁移（`init_db()` 的 `_sync_columns` + ad-hoc ALTER + email_verified_at 一次性回填）在启动时幂等执行。
+- LLM/Embedding/Brevo/R2 凭证、JWT secret 只存在于 Railway 环境变量，不落代码。
+- 图片全部走 R2（`/api/files/upload`，kind 前缀）；CSV 商品上传仍走本地 `StorageService`。
 
-## 三、待办 / 遗留事项
-- **历史评论图片迁移**：旧图仍在 `backend/uploads/images/`（Railway 本地磁盘），review.images 里存的是相对 URL `/api/files/images/<uuid>.ext`。需单独写迁移脚本上传到 R2 并改写 URL；Railway 重新部署会丢本地文件。
-- **R2 公开访问**：bucket 为 "Public Access: Disabled"，需确认 `img.zhermai.com` 自定义域名能公开读取对象，否则 `<img>` 会 403。
-- **Railway 需重新部署**：设置 R2 环境变量后重新部署。
+## 三、待办 / 遗留
+- 历史评论图片仍在 `backend/uploads/images/`（本地磁盘），需迁移到 R2。
+- R2 公开访问需确认 `img.zhermai.com` 能公开读取对象。
 - 集成测试需在有 Docker 的环境运行（本机无 Docker）。
-- `DEPLOY.md` 部分内容已过时（mock 降级描述、旧域名），暂未更新。
+- 未来 100k+ 商品需加 pgvector HNSW/IVFFlat 索引 + 独立任务队列。
 
-## 四、Commit 记录（本会话新增，均已在 main）
+## 四、Commit 记录（近期，均已 push 到 main）
 ```
-ad37265 feat: migrate review image upload to Cloudflare R2
-375e3ec feat: add product favorite and view counts
-7ab5cc3 fix: prevent infinite saved-products request from user object dependency
-29e1d80 fix: make seller inquiry inquiry_id nullable and surface network errors
-1d18b3b feat: product reviews, ratings, seller score, and admin batch delete
-e11433e feat: buyer saved products and seller profile
-b0670e7 feat: multi-role accounts per email, required phone, uid login, admin reset-all
-b837905 fix: language switcher visibility and admin products pagination/bulk delete
-e4e767e test: add inquiry integration test
-646cf79 feat: refresh frontend with shared dashboard design system
-a4dd044 feat: include seller info in admin product list
-79e8c3d feat: add seller inquiry pagination and buyer inquiry history
-cbca2ff feat: separate buyer and seller accounts
-f395740 feat: seed test accounts (test@test.com and admin@test.com)
-cec0ca6 chore: remove legacy browser-side AI and storage code
-0f76ee0 refactor: remove mock LLM rule engine, fail on API errors
-02f1848 feat: implement real product parsing for xlsx/docx/pdf
-ca61d31 fix: update supported upload extensions
-ac9e8b9 refactor: abstract file storage
+a4a6ddb perf: reduce DeepSeek cost with merged analysis and usage logging
+fab8496 fix: resolve 500 on saved-products from correlated subquery
+a87040b fix: surface saved-products errors and add clear-all-favorites admin action
+b570913 feat: product image management, avatars, and manual product creation
+0f667c7 chore: remove cross-lingual benchmark tooling
+47fa8c4 chore: remove benchmark sample data from repo
+c49a2cb feat: cross-lingual retrieval benchmark
+d6ef51c fix: admin accounts list and reported review visibility
+5adc113 feat: email verification and password reset
+d75d316 feat: seller-level reviews, seller storefront, and buyer routing
 ```

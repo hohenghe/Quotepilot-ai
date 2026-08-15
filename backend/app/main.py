@@ -19,6 +19,7 @@ from app.api.saved_products import router as saved_products_router
 from app.api.reviews import router as reviews_router
 from app.api.files import router as files_router
 from app.api.sellers import router as sellers_router
+from app.api.wechat import router as wechat_router
 
 _worker_task: asyncio.Task | None = None
 
@@ -111,6 +112,7 @@ app.include_router(saved_products_router)
 app.include_router(reviews_router)
 app.include_router(files_router)
 app.include_router(sellers_router)
+app.include_router(wechat_router)
 
 
 @app.get("/")

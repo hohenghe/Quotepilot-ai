@@ -19,6 +19,10 @@ class Settings(BaseSettings):
 
     JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
 
+    # WeChat Mini Program login (jscode2session)
+    WECHAT_APPID: str = ""
+    WECHAT_APP_SECRET: str = ""
+
     # Email (Brevo Transactional Email API)
     BREVO_API_KEY: str = ""
     MAIL_FROM_EMAIL: str = "noreply@zhermai.com"

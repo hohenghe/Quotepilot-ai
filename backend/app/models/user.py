@@ -8,8 +8,8 @@ class User(Base):
     __table_args__ = (UniqueConstraint("email", "role", name="uq_users_email_role"),)
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    email = Column(String(300), nullable=False, index=True)
-    password_hash = Column(String(300), nullable=False)
+    email = Column(String(300), nullable=True, index=True)
+    password_hash = Column(String(300), nullable=True)
     role = Column(String(20), nullable=False, default="seller")
     name = Column(String(200), nullable=True)
     store_name = Column(String(200), nullable=True)

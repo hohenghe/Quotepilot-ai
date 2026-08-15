@@ -26,8 +26,8 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
     return {
         "users": [
             ("id", "BIGSERIAL PRIMARY KEY", None),
-            ("email", "TEXT NOT NULL", None),
-            ("password_hash", "TEXT NOT NULL", None),
+            ("email", "TEXT", None),
+            ("password_hash", "TEXT", None),
             ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
             ("name", "TEXT", None),
             ("store_name", "TEXT", None),
@@ -150,6 +150,14 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("used_at", "TIMESTAMPTZ", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
+        "seller_wechat_accounts": [
+            ("id", "BIGSERIAL PRIMARY KEY", None),
+            ("user_id", "INTEGER NOT NULL", "users(id) ON DELETE CASCADE"),
+            ("openid", "TEXT NOT NULL", None),
+            ("unionid", "TEXT", None),
+            ("bound_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+            ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
+        ],
     }
 
 
@@ -208,6 +216,7 @@ async def init_db():
     from app.models.saved_product import SavedProduct
     from app.models.review import Review
     from app.models.auth_token import AuthToken
+    from app.models.seller_wechat_account import SellerWechatAccount
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
@@ -259,6 +268,21 @@ async def init_db():
         try:
             await conn.execute(text(
                 "ALTER TABLE seller_inquiries ALTER COLUMN inquiry_id DROP NOT NULL"
+            ))
+        except Exception:
+            pass
+
+        # users.email / users.password_hash: make nullable so WeChat-created sellers
+        # can exist without an email or password.
+        try:
+            await conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
+            ))
+        except Exception:
+            pass
+        try:
+            await conn.execute(text(
+                "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL"
             ))
         except Exception:
             pass

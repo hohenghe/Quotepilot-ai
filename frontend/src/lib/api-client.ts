@@ -550,6 +550,43 @@ export async function deleteAllProducts(): Promise<number> {
   return data.deleted_count
 }
 
+// ── Product photo recognition ──────────────────────────────────
+
+export interface RecognizedFields {
+  name: string | null
+  sku: string | null
+  category: string | null
+  description: string | null
+  technical_specs: string | null
+  certifications: string | null
+  moq: number | null
+  unit_price: number | null
+  price_range_low: number | null
+  price_range_high: number | null
+  pricing: string | null
+  lead_time_days: number | null
+}
+
+export async function recognizeProduct(file: File): Promise<RecognizedFields> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const token = getToken()
+  const headers: Record<string, string> = {}
+  if (token) headers["Authorization"] = `Bearer ${token}`
+  const res = await fetch(`${getApiBaseUrl()}/api/products/recognize`, {
+    method: "POST",
+    body: formData,
+    headers,
+  })
+  if (!res.ok) {
+    if (res.status === 401) logout()
+    const text = await res.text()
+    throw new Error(`Recognition failed (${res.status}): ${text.slice(0, 200)}`)
+  }
+  const data = await res.json()
+  return (data.data ?? {}) as RecognizedFields
+}
+
 // ── Reviews ─────────────────────────────────────────────────────
 
 export interface ReviewItem {

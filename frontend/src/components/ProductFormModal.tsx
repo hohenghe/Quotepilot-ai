@@ -1,9 +1,9 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { X, ImagePlus, Trash2, Loader2 } from "lucide-react"
-import { createProduct, updateProduct, uploadImage } from "@/lib/api-client"
-import type { ProductPayload } from "@/lib/api-client"
+import { X, ImagePlus, Trash2, Loader2, Camera, ScanLine } from "lucide-react"
+import { createProduct, updateProduct, uploadImage, recognizeProduct } from "@/lib/api-client"
+import type { ProductPayload, RecognizedFields } from "@/lib/api-client"
 import { useToast } from "@/components/Toast"
 import { useT } from "@/i18n/I18nProvider"
 import type { Product } from "@/types"
@@ -41,6 +41,14 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
   const [images, setImages] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [saving, setSaving] = useState(false)
+  const [recognizing, setRecognizing] = useState(false)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const touch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window)
+    const small = typeof window !== "undefined" && window.matchMedia("(max-width: 768px)").matches
+    setIsMobile(!!touch && !!small)
+  }, [])
 
   useEffect(() => {
     if (!open) return
@@ -100,6 +108,55 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
     setImages(prev => prev.filter((_, i) => i !== index))
   }
 
+  const handleRecognize = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ""
+    if (!file) return
+    setRecognizing(true)
+    const canAddImage = images.length < MAX_IMAGES
+    let gotAny = false
+    try {
+      let recognized: RecognizedFields | null = null
+      try {
+        recognized = await recognizeProduct(file)
+      } catch {
+        toast.push("error", t.seller.recognizeFailed)
+        return
+      }
+
+      const f = recognized ?? ({} as RecognizedFields)
+      gotAny = Object.values(f).some(v => v !== null && v !== undefined && v !== "")
+      if (f.name) setName(f.name)
+      if (f.sku) setSku(f.sku)
+      if (f.category) setCategory(f.category)
+      if (f.description) setDescription(f.description)
+      if (f.technical_specs) setTechnicalSpecs(f.technical_specs)
+      if (f.certifications) setCertifications(f.certifications)
+      if (f.moq != null) setMoq(String(f.moq))
+      if (f.unit_price != null) setUnitPrice(String(f.unit_price))
+      if (f.price_range_low != null) setPriceLow(String(f.price_range_low))
+      if (f.price_range_high != null) setPriceHigh(String(f.price_range_high))
+      if (f.pricing) setPricing(f.pricing)
+      if (f.lead_time_days != null) setLeadTime(String(f.lead_time_days))
+
+      if (gotAny) {
+        if (canAddImage) {
+          try {
+            const res = await uploadImage(file, "product")
+            setImages(prev => [...prev, res.url])
+          } catch {
+            // image upload is best-effort; fields are already filled
+          }
+        }
+        toast.push("success", t.seller.recognizeSuccess)
+      } else {
+        toast.push("error", t.seller.recognizeEmpty)
+      }
+    } finally {
+      setRecognizing(false)
+    }
+  }
+
   const handleSubmit = async () => {
     if (!name.trim()) return
     setSaving(true)
@@ -147,6 +204,28 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
+            <div className="flex items-center gap-2 mb-1">
+              <ScanLine className="w-4 h-4 text-brand-600" />
+              <span className="text-sm font-medium text-slate-700">{t.seller.recognizePhoto}</span>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">{t.seller.recognizeHint}</p>
+            <div className="flex gap-2">
+              {isMobile && (
+                <label className={`btn-primary flex-1 cursor-pointer ${recognizing ? "pointer-events-none opacity-50" : ""}`}>
+                  {recognizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Camera className="w-4 h-4" />}
+                  {recognizing ? t.seller.recognizing : t.seller.takePhoto}
+                  <input type="file" accept="image/*" capture="environment" className="hidden" onChange={handleRecognize} disabled={recognizing} />
+                </label>
+              )}
+              <label className={`btn-secondary flex-1 cursor-pointer ${recognizing ? "pointer-events-none opacity-50" : ""}`}>
+                {recognizing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ImagePlus className="w-4 h-4" />}
+                {recognizing ? t.seller.recognizing : t.seller.choosePhoto}
+                <input type="file" accept="image/*" className="hidden" onChange={handleRecognize} disabled={recognizing} />
+              </label>
+            </div>
+          </div>
+
           <div>
             <label className="label">{t.seller.productName} *</label>
             <input className="input" value={name} onChange={e => setName(e.target.value)} />

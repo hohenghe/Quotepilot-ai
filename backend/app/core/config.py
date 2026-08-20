@@ -28,7 +28,7 @@ class Settings(BaseSettings):
     AI_OCR_MODEL: str = ""
     AI_OCR_TIMEOUT: int = 45
     AI_VISION_TIMEOUT: int = 60
-    AI_MAX_IMAGE_DIMENSION: int = 2048
+    AI_MAX_IMAGE_DIMENSION: int = 3072
 
     JWT_SECRET_KEY: str = "quotepilot-dev-secret-change-in-production"
 

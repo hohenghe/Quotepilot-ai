@@ -37,33 +37,51 @@ _FIELD_KEYS = [
     "price_range_high", "pricing", "lead_time_days",
 ]
 
-OCR_SYSTEM_PROMPT = """You are a precise OCR engine. Extract ALL readable text from the image.
+OCR_SYSTEM_PROMPT = """You are a high-precision OCR engine specialized in product nameplates, specification labels, parameter tables, and packaging text for international trade.
 
-Rules:
-- Transcribe every visible piece of text: product name, model, SKU, part number, certification marks and numbers (CE, RoHS, UL, FCC...), technical parameters, values with their units (voltage, wattage, dimensions, weight...).
-- Preserve the original text as faithfully as possible. Do not translate, paraphrase, correct spelling, or reorder.
-- Keep digits, units, symbols, and line structure where possible.
-- Do not guess or complete blurred / illegible text; skip it.
-- Do not add any commentary, explanation, or JSON. Output ONLY the recognized text."""
+Task: FAITHFULLY TRANSCRIBE every readable character in the image. You are READING, not understanding or reasoning about the product.
 
-VISION_SYSTEM_PROMPT = """You are a product attribute extraction system for an international trade platform.
-
-Your task is NOT to guess product information. Extract only the product attributes you can CONFIRM from the provided product image and its OCR text.
+Transcribe ALL visible text, including:
+- Product name, model, SKU, part number, item number, product number, serial number.
+- Technical parameters WITH their values and units: voltage, wattage, power, current, frequency, dimensions, weight, capacity, material, color, luminous flux, IP rating, etc.
+- Certification marks and adjacent text/numbers: CE, RoHS, UL, FCC, ETL, CCC, PSE, KC, SAA, BIS, etc.
+- Specification tables: preserve rows and columns as faithfully as possible.
+- Mixed Chinese and English text: keep both, do not drop either.
+- Packaging labels, barcode digits, country of origin, "Made in ...".
 
 Strict rules:
-- Only fill fields you can confirm from the image or the OCR text.
-- Return null for any field you cannot confirm.
-- Do NOT guess prices, MOQ, lead time, or any business number based on general product knowledge.
-- sku: MUST come from text visible in the image or OCR. Never invent a SKU.
-- certifications: MUST come from certification marks, numbers, or text explicitly visible in the image/OCR.
-- Do NOT fabricate brand, model, dimensions, weight, material, or any field not in the schema below.
-- Do NOT output any field that is not in the schema below.
-- If the image is not a product, or nothing can be confirmed, return all fields as null.
-- Return ONLY valid JSON. No markdown, no code fences, no extra text.
+- Preserve the original text EXACTLY. Do NOT translate, transliterate, summarize, paraphrase, reorder, or "correct" anything.
+- Preserve digits, units, symbols, case, hyphens, slashes, parentheses, decimal points, and line/paragraph structure.
+- Keep SKU / model / part-number strings character-for-character (e.g. "HX-LED-24V-12W" stays exactly that). Never insert, remove, or alter spaces, dashes, or digits.
+- Do NOT "fix" visually similar characters (e.g. 0/O, 1/l/I, 5/S). Transcribe what is actually visible.
+- If a character or word is blurred or illegible, SKIP it. Do NOT guess or complete partial text.
+- Do NOT infer, deduce, or add any text that is not literally visible in the image.
+- Do NOT output commentary, explanation, headings, or JSON. Output ONLY the recognized text, in natural reading order."""
 
-category must be exactly one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other. Otherwise return null.
+VISION_SYSTEM_PROMPT = """You are a STRICT product-attribute extraction system for an international trade platform.
 
-Return JSON in exactly this shape (all fields nullable):
+Evidence priority:
+1. The ORIGINAL IMAGE is the highest-priority evidence.
+2. The OCR text is supplementary evidence only.
+3. If the OCR text conflicts with what is actually visible in the image, trust the IMAGE.
+4. If something cannot be confirmed from either source, return null for that field.
+
+Absolute prohibitions (to prevent hallucination):
+- Do NOT use general product knowledge or common sense to infer ANY field.
+- Do NOT complete, fill, or "enrich" fields that are not shown in the image/OCR.
+- Do NOT guess MOQ, unit_price, price ranges, or lead_time_days from product category or typical values. These MUST be null unless explicitly visible (e.g. a price tag / MOQ label in the image or OCR).
+- sku MUST come from a SKU/model/part-number string literally visible in the image or OCR. Never invent or fabricate a SKU.
+- certifications MUST come from certification marks, logos, numbers, or text explicitly visible in the image/OCR. Never list certifications from general knowledge.
+- Never output a field that is not in the schema below. Never fabricate brand, material, weight, dimensions, or any value not literally shown.
+
+Field rules:
+- name: the product name, only if clearly visible.
+- category: must be EXACTLY one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other. Choose a category only if you can confirm it from the image. Otherwise null.
+- technical_specs: compile ALL confirmable technical parameters from the image/OCR as structured text, one "key: value" item per line. Preserve numbers and units exactly as shown. Do not invent specs.
+- description: describe ONLY product information confirmable from the image. No speculation.
+- moq / unit_price / price_range_low / price_range_high / lead_time_days / pricing: null unless explicitly stated in the image or OCR.
+
+Return ONLY valid JSON (no markdown, no code fences, no extra text) in exactly this shape (every field nullable):
 {
   "name": null,
   "sku": null,
@@ -133,6 +151,10 @@ def _clean_str(value: Any, max_len: int) -> str | None:
     return value[:max_len]
 
 
+_NUM_RE = re.compile(r"^\s*[+]?\d+\s*$")
+_FLOAT_RE = re.compile(r"^\s*[+]?\d+(?:\.\d+)?\s*$")
+
+
 def _clean_int(value: Any) -> int | None:
     if isinstance(value, bool):
         return None
@@ -140,6 +162,11 @@ def _clean_int(value: Any) -> int | None:
         return value if value >= 0 else None
     if isinstance(value, float) and value.is_integer() and value >= 0:
         return int(value)
+    # Tolerate numeric strings the model sometimes emits in JSON (e.g. "100").
+    # Non-numeric strings stay null — never coerced into fabricated numbers.
+    if isinstance(value, str) and _NUM_RE.match(value):
+        iv = int(value.strip())
+        return iv if iv >= 0 else None
     return None
 
 
@@ -148,6 +175,9 @@ def _clean_float(value: Any) -> float | None:
         return None
     if isinstance(value, (int, float)):
         return float(value) if value >= 0 else None
+    if isinstance(value, str) and _FLOAT_RE.match(value):
+        fv = float(value.strip())
+        return fv if fv >= 0 else None
     return None
 
 
@@ -155,7 +185,10 @@ def _clean_category(value: Any) -> str | None:
     s = _clean_str(value, _LEN_SKU)
     if s is None:
         return None
-    return s if s in ALLOWED_CATEGORIES else None
+    # Normalize case/spaces so a valid enum returned with different casing
+    # (e.g. "LED Lighting") is still accepted; anything off-enum stays null.
+    norm = s.lower().replace(" ", "_")
+    return norm if norm in ALLOWED_CATEGORIES else None
 
 
 def _empty_fields() -> dict[str, Any]:
@@ -192,22 +225,42 @@ def preprocess_image(
     mime_type: str,
     max_dimension: int,
 ) -> tuple[bytes, str]:
-    """Fix EXIF orientation, optionally downscale large images, re-encode to JPEG.
+    """EXIF-orient, optionally downscale large images, re-encode to high-quality JPEG.
 
-    Small images are left at native resolution (never upscaled blindly) to keep
-    small label/spec text readable. On any error, the original bytes are returned.
+    Accuracy-first:
+    - Never upscale.
+    - Skip re-encoding entirely when no transform is needed (no EXIF orientation,
+      no downscale, already a display-friendly mode). This preserves the text
+      edges of lossless sources (PNG spec sheets / screenshots) that a JPEG
+      re-encode would blur.
+    - When a transform is needed, re-encode JPEG at quality 95 to limit edge
+      artifacting around small characters.
+    - On any error, the original bytes are returned unchanged.
     """
     try:
         from PIL import Image, ImageOps
 
         img = Image.open(io.BytesIO(image_bytes))
-        img = ImageOps.exif_transpose(img)
 
+        exif = img.getexif() if hasattr(img, "getexif") else None
+        _ORIENTATION = 0x0112
+        has_orientation = bool(
+            exif and _ORIENTATION in exif and exif[_ORIENTATION] not in (1, None)
+        )
+
+        w, h = img.size
+        needs_resize = bool(max_dimension) and max(w, h) > max_dimension
+
+        # Pass-through: nothing to fix and already a safe mode -> keep original
+        # bytes verbatim (no lossy re-encode, no extra work).
+        if not has_orientation and not needs_resize and img.mode in ("RGB", "L"):
+            return image_bytes, mime_type
+
+        img = ImageOps.exif_transpose(img)
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
 
-        w, h = img.size
-        if max_dimension and max(w, h) > max_dimension:
+        if needs_resize:
             ratio = max_dimension / max(w, h)
             img = img.resize(
                 (max(1, int(w * ratio)), max(1, int(h * ratio))),
@@ -215,7 +268,7 @@ def preprocess_image(
             )
 
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=90)
+        img.save(buf, format="JPEG", quality=95)
         return buf.getvalue(), "image/jpeg"
     except Exception as e:
         logger.warning("image preprocessing failed (%s), using original", type(e).__name__)
@@ -264,22 +317,24 @@ async def _run_ocr(data_url: str) -> tuple[str, dict]:
         {
             "role": "user",
             "content": [
-                {"type": "text", "text": "Extract all readable text from this image."},
-                {"type": "image_url", "image_url": {"url": data_url}},
+                {"type": "text", "text": "Transcribe all readable text from this product image, exactly as shown."},
+                {"type": "image_url", "image_url": {"url": data_url, "detail": "high"}},
             ],
         },
     ]
     return await _call_chat(
         messages, settings.AI_OCR_MODEL, settings.AI_OCR_TIMEOUT,
-        temperature=0.0, max_tokens=2000, json_mode=False,
+        temperature=0.0, max_tokens=4000, json_mode=False,
     )
 
 
 async def _run_vision(data_url: str, ocr_text: str) -> tuple[str, dict]:
     user_text = (
-        "Product image OCR text:\n"
+        "Product image OCR text (supplementary evidence only):\n"
         + (ocr_text.strip() or "(no readable text recognized)")
-        + "\n\nExtract the confirmable product attributes."
+        + "\n\nUsing the ORIGINAL IMAGE as the primary evidence and the OCR text as "
+        "supplementary evidence, extract only the product attributes you can confirm. "
+        "Return null for any field you cannot confirm."
     )
     messages = [
         {"role": "system", "content": VISION_SYSTEM_PROMPT},
@@ -293,7 +348,7 @@ async def _run_vision(data_url: str, ocr_text: str) -> tuple[str, dict]:
     ]
     return await _call_chat(
         messages, settings.AI_VISION_MODEL, settings.AI_VISION_TIMEOUT,
-        temperature=0.1, max_tokens=600, json_mode=True,
+        temperature=0.0, max_tokens=1200, json_mode=True,
     )
 
 
@@ -333,9 +388,10 @@ async def recognize_product_image(image_bytes: bytes, mime_type: str) -> dict[st
 
     logger.info(
         "[PRODUCT_AI] preprocess_ms=%s ocr_ms=%s vision_ms=%s total_ms=%s "
-        "ocr_model=%s vision_model=%s "
+        "img_kb=%s img_mime=%s ocr_model=%s vision_model=%s "
         "ocr_in=%s ocr_out=%s vision_in=%s vision_out=%s",
-        preprocess_ms, ocr_ms, vision_ms, total_ms, ocr_model, vision_model,
+        preprocess_ms, ocr_ms, vision_ms, total_ms,
+        round(len(processed_bytes) / 1024), processed_mime, ocr_model, vision_model,
         ocr_usage.get("prompt_tokens", 0), ocr_usage.get("completion_tokens", 0),
         vision_usage.get("prompt_tokens", 0), vision_usage.get("completion_tokens", 0),
     )

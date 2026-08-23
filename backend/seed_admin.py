@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from datetime import datetime, timezone
+from app.core.config import settings, is_production
 from app.core.database import async_session
 from app.models.user import User
 from app.core.security import hash_password
@@ -8,20 +9,43 @@ from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
 
-ADMIN_EMAIL = "1951444042@qq.com"
-ADMIN_PASSWORD = "admin1234"
-
-TEST_ACCOUNTS = [
-    {"email": "test@test.com", "password": "test1234", "role": "buyer", "name": "Test Buyer", "country": "CN", "phone": "13800000001", "uid": "TESTBUYER01"},
-    {"email": "seller@test.com", "password": "test1234", "role": "seller", "name": "Test Seller", "country": "CN", "phone": "13800000002", "uid": "TESTSELLER1"},
-    {"email": "admin@test.com", "password": "test1234", "role": "admin", "name": "Test Admin", "country": "CN", "phone": None, "uid": None},
+# Dev-only fallbacks (clearly marked, NEVER used in production).
+_DEV_ADMIN_EMAIL = "admin@localhost"
+_DEV_ADMIN_PASSWORD = "devadmin123"
+_DEV_TEST_PASSWORD = "devtest1234"
+_DEV_TEST_ACCOUNTS = [
+    {"email": "test@localhost", "password": _DEV_TEST_PASSWORD, "role": "buyer", "name": "Test Buyer", "country": "CN", "phone": "13800000001", "uid": "TESTBUYER01"},
+    {"email": "seller@localhost", "password": _DEV_TEST_PASSWORD, "role": "seller", "name": "Test Seller", "country": "CN", "phone": "13800000002", "uid": "TESTSELLER1"},
+    {"email": "admin@localhost", "password": _DEV_TEST_PASSWORD, "role": "admin", "name": "Test Admin", "country": "CN", "phone": None, "uid": None},
 ]
 
 
+def _admin_credentials() -> tuple[str, str]:
+    """Resolve admin email/password from env; dev falls back to dev-only creds."""
+    email = settings.ADMIN_EMAIL or (_DEV_ADMIN_EMAIL if not is_production() else "")
+    password = settings.ADMIN_PASSWORD or (_DEV_ADMIN_PASSWORD if not is_production() else "")
+    return email, password
+
+
+def _should_create_test_accounts() -> bool:
+    # NEVER in production; in dev, opt-in via CREATE_TEST_ACCOUNTS=true.
+    if is_production():
+        return False
+    return (settings.CREATE_TEST_ACCOUNTS or "").strip().lower() in ("1", "true", "yes")
+
+
 async def create_admin():
+    email, password = _admin_credentials()
+    if not email or not password:
+        logger.warning(
+            "ADMIN_EMAIL/ADMIN_PASSWORD not set%s; skipping admin account creation.",
+            " in production" if is_production() else "",
+        )
+        return
+
     async with async_session() as db:
         result = await db.execute(
-            select(User).where(User.email == ADMIN_EMAIL, User.role == "admin")
+            select(User).where(User.email == email, User.role == "admin")
         )
         existing = result.scalar_one_or_none()
         if existing:
@@ -31,8 +55,8 @@ async def create_admin():
             return
 
         admin = User(
-            email=ADMIN_EMAIL,
-            password_hash=hash_password(ADMIN_PASSWORD),
+            email=email,
+            password_hash=hash_password(password),
             role="admin",
             name="Administrator",
             country="CN",
@@ -40,12 +64,15 @@ async def create_admin():
         )
         db.add(admin)
         await db.commit()
-        logger.warning("Admin account created: %s", ADMIN_EMAIL)
+        logger.warning("Admin account created: %s", email)
 
 
 async def create_test_accounts():
+    if not _should_create_test_accounts():
+        return
+
     async with async_session() as db:
-        for acc in TEST_ACCOUNTS:
+        for acc in _DEV_TEST_ACCOUNTS:
             result = await db.execute(
                 select(User).where(User.email == acc["email"], User.role == acc["role"])
             )

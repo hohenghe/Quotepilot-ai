@@ -35,6 +35,21 @@ EXT_TO_MIME = {
 SAFE_NAME = re.compile(r"^[0-9a-f]{32}\.(png|jpg|jpeg|gif|webp)$")
 MAX_SIZE = 5 * 1024 * 1024
 
+# Magic-byte signatures for real content validation (never trust Content-Type alone).
+_IMAGE_MAGIC = {
+    "image/jpeg": (b"\xff\xd8\xff",),
+    "image/png": (b"\x89PNG\r\n\x1a\n",),
+    "image/gif": (b"GIF87a", b"GIF89a"),
+    "image/webp": (b"RIFF",),  # RIFF....WEBP
+}
+
+
+def _verify_image_magic(content: bytes, content_type: str) -> bool:
+    sigs = _IMAGE_MAGIC.get(content_type)
+    if sigs is None:
+        return False
+    return content.startswith(sigs)
+
 # Object-key prefix per upload kind (client cannot control the key).
 KIND_PREFIX = {
     "review": "reviews",
@@ -63,6 +78,10 @@ async def upload_image(
         content_type = EXT_TO_MIME[ext]
     else:
         raise HTTPException(status_code=400, detail="Unsupported image type")
+
+    # Validate actual content against magic bytes (don't trust the Content-Type header).
+    if not _verify_image_magic(content, content_type):
+        raise HTTPException(status_code=400, detail="File content does not match the declared image type")
 
     prefix = KIND_PREFIX.get(kind)
     if prefix is None:

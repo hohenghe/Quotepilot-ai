@@ -1,27 +1,44 @@
 """
 Quotes API — generate professional quotation emails.
 """
+import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.database import get_db
+from app.core.auth import require_auth, require_admin
 from app.models.quote import Quote
 from app.models.inquiry import Inquiry
 from app.models.product import Product
+from app.models.user import User
 from app.schemas.quote import QuoteGenerateRequest, QuoteResponse
 from app.services.llm import generate_quote_email
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/quotes", tags=["quotes"])
 
 
-@router.post("/generate", response_model=QuoteResponse)
-async def generate_quote(request: QuoteGenerateRequest, db: AsyncSession = Depends(get_db)):
-    # Get inquiry
-    result = await db.execute(select(Inquiry).where(Inquiry.id == request.inquiry_id))
+async def _get_owned_inquiry(db: AsyncSession, inquiry_id: int, user: User) -> Inquiry:
+    """Load an inquiry and verify the caller owns it (or is admin)."""
+    result = await db.execute(select(Inquiry).where(Inquiry.id == inquiry_id))
     inquiry = result.scalar_one_or_none()
     if not inquiry:
         raise HTTPException(status_code=404, detail="Inquiry not found")
+    if user.role == "admin":
+        return inquiry
+    if inquiry.buyer_id is None or inquiry.buyer_id != user.id:
+        raise HTTPException(status_code=403, detail="You do not have access to this inquiry")
+    return inquiry
+
+
+@router.post("/generate", response_model=QuoteResponse)
+async def generate_quote(
+    request: QuoteGenerateRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_auth),
+):
+    inquiry = await _get_owned_inquiry(db, request.inquiry_id, user)
 
     # Get selected products (or all matched)
     product_ids = request.selected_product_ids
@@ -77,9 +94,21 @@ async def generate_quote(request: QuoteGenerateRequest, db: AsyncSession = Depen
 
 
 @router.get("/{quote_id}", response_model=QuoteResponse)
-async def get_quote(quote_id: int, db: AsyncSession = Depends(get_db)):
+async def get_quote(
+    quote_id: int,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_auth),
+):
     result = await db.execute(select(Quote).where(Quote.id == quote_id))
     quote = result.scalar_one_or_none()
     if not quote:
         raise HTTPException(status_code=404, detail="Quote not found")
+
+    # Verify ownership via the linked inquiry (admin bypasses).
+    if user.role != "admin" and quote.inquiry_id is not None:
+        inq_result = await db.execute(select(Inquiry).where(Inquiry.id == quote.inquiry_id))
+        inquiry = inq_result.scalar_one_or_none()
+        if not inquiry or inquiry.buyer_id is None or inquiry.buyer_id != user.id:
+            raise HTTPException(status_code=403, detail="You do not have access to this quote")
+
     return QuoteResponse.model_validate(quote)

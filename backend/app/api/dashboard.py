@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
-from app.core.auth import require_admin, require_seller
+from app.core.auth import require_admin, require_auth, require_seller
 from app.models.product import Product
 from app.models.inquiry import Inquiry
 from app.models.quote import Quote
@@ -13,7 +13,10 @@ router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
 
 @router.get("")
-async def get_dashboard(db: AsyncSession = Depends(get_db)):
+async def get_dashboard(
+    db: AsyncSession = Depends(get_db),
+    _: User = Depends(require_auth),
+):
     total_result = await db.execute(select(func.count(Product.id)).where(Product.is_active == True))
     total_products = total_result.scalar() or 0
 

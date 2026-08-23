@@ -11,6 +11,10 @@ from app.models.product import Product
 
 router = APIRouter(prefix="/api/seller-inquiries", tags=["seller-inquiries"])
 
+# In-memory lock set: prevents concurrent LLM generation for the same inquiry
+# (single-worker deployment). Checked/added synchronously → no asyncio race.
+_generating_locks: set[int] = set()
+
 
 class SendInquiryRequest(BaseModel):
     inquiry_text: str
@@ -25,7 +29,9 @@ async def send_inquiry(
     user: User | None = Depends(require_auth),
 ):
     # Find the product and its seller
-    result = await db.execute(select(Product).where(Product.id == data.product_id))
+    result = await db.execute(
+        select(Product).where(Product.id == data.product_id, Product.is_active == True)
+    )
     product = result.scalar_one_or_none()
     if not product:
         raise HTTPException(status_code=404, detail="Product not found")
@@ -115,48 +121,58 @@ async def generate_reply(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_seller),
 ):
-    result = await db.execute(
-        select(SellerInquiry).where(
-            SellerInquiry.id == data.inquiry_id,
-            SellerInquiry.seller_id == user.id,
+    # Concurrency guard: prevent two concurrent LLM calls for the same inquiry.
+    # Synchronous check+add (no await between) → safe under the single event loop.
+    if data.inquiry_id in _generating_locks:
+        raise HTTPException(
+            status_code=409,
+            detail="A reply is already being generated for this inquiry. Please try again shortly.",
         )
-    )
-    inquiry = result.scalar_one_or_none()
-    if not inquiry:
-        raise HTTPException(status_code=404, detail="Inquiry not found")
+    _generating_locks.add(data.inquiry_id)
+    try:
+        result = await db.execute(
+            select(SellerInquiry).where(
+                SellerInquiry.id == data.inquiry_id,
+                SellerInquiry.seller_id == user.id,
+            )
+        )
+        inquiry = result.scalar_one_or_none()
+        if not inquiry:
+            raise HTTPException(status_code=404, detail="Inquiry not found")
 
-    # Get product info
-    product = None
-    matched_products = []
-    if inquiry.product_id:
-        p_result = await db.execute(select(Product).where(Product.id == inquiry.product_id))
-        product = p_result.scalar_one_or_none()
-        if product:
-            matched_products = [{
-                "product_name": product.name,
-                "sku": product.sku,
-                "match_score": 1.0,
-                "match_reason": "Customer selected this product",
-                "moq": product.moq,
-                "unit_price": product.unit_price,
-                "price_range_low": product.price_range_low,
-                "price_range_high": product.price_range_high,
-                "pricing": product.pricing,
-                "lead_time_days": product.lead_time_days,
-                "certifications": product.certifications,
-            }]
+        # Get product info
+        matched_products = []
+        if inquiry.product_id:
+            p_result = await db.execute(select(Product).where(Product.id == inquiry.product_id))
+            product = p_result.scalar_one_or_none()
+            if product:
+                matched_products = [{
+                    "product_name": product.name,
+                    "sku": product.sku,
+                    "match_score": 1.0,
+                    "match_reason": "Customer selected this product",
+                    "moq": product.moq,
+                    "unit_price": product.unit_price,
+                    "price_range_low": product.price_range_low,
+                    "price_range_high": product.price_range_high,
+                    "pricing": product.pricing,
+                    "lead_time_days": product.lead_time_days,
+                    "certifications": product.certifications,
+                }]
 
-    email_data = await generate_quote_email(
-        inquiry_text=inquiry.raw_message,
-        customer_name=inquiry.buyer_email,
-        matched_products=matched_products,
-    )
+        email_data = await generate_quote_email(
+            inquiry_text=inquiry.raw_message,
+            customer_name=inquiry.buyer_email,
+            matched_products=matched_products,
+        )
 
-    inquiry.reply_body = email_data["email_body"]
-    inquiry.status = "replied"
-    await db.commit()
+        inquiry.reply_body = email_data["email_body"]
+        inquiry.status = "replied"
+        await db.commit()
 
-    return {
-        "subject": email_data["subject"],
-        "email_body": email_data["email_body"],
-    }
+        return {
+            "subject": email_data["subject"],
+            "email_body": email_data["email_body"],
+        }
+    finally:
+        _generating_locks.discard(data.inquiry_id)

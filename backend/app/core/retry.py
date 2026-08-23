@@ -21,10 +21,12 @@ class FatalEmbeddingError(RuntimeError):
 
 async def embedding_api_call_with_retry(
     inputs: list[str],
+    max_retries: int | None = None,
 ) -> list[list[float]]:
     key = settings.EMBEDDING_API_KEY or settings.OPENAI_API_KEY
     url = settings.EMBEDDING_BASE_URL or settings.OPENAI_BASE_URL
-    max_retries = settings.EMBEDDING_MAX_RETRIES
+    if max_retries is None:
+        max_retries = settings.EMBEDDING_MAX_RETRIES
 
     last_error = None
     for attempt in range(max_retries + 1):

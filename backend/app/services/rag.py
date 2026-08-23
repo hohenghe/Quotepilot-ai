@@ -43,10 +43,16 @@ async def search_products_hybrid(
     query: str,
     top_k: int = 5,
     candidate_limit: int = 50,
+    embedding_max_retries: int | None = None,
 ) -> list[dict[str, Any]]:
-    """Hybrid search: pgvector cosine similarity + keyword reranking."""
+    """Hybrid search: pgvector cosine similarity + keyword reranking.
+
+    embedding_max_retries overrides the global retry count for the synchronous
+    query-embedding call (the /analyze path uses a smaller value than the
+    background worker to avoid holding a connection for minutes)."""
     global _rag_logged
     use_vector = is_embedding_available()
+    query_vec: list[float] | None = None
 
     if use_vector:
         if not _rag_logged:
@@ -54,11 +60,10 @@ async def search_products_hybrid(
             _rag_logged = True
 
         try:
-            query_vec = await generate_query_embedding(query)
+            query_vec = await generate_query_embedding(query, max_retries=embedding_max_retries)
         except Exception as e:
             logger.warning("Query embedding failed, falling back to keyword-only: %s", str(e)[:200])
             use_vector = False
-            # Return a special indicator
     else:
         if not _rag_logged:
             logger.warning("SEARCH MODE: keyword-only on DB")

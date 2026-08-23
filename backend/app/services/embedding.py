@@ -201,8 +201,11 @@ async def process_pending_embeddings() -> dict:
     return result
 
 
-async def generate_query_embedding(text: str) -> list[float]:
-    """Generate embedding for a single query text. Only for inquiry matching."""
+async def generate_query_embedding(text: str, max_retries: int | None = None) -> list[float]:
+    """Generate embedding for a single query text. Only for inquiry matching.
+
+    max_retries overrides settings.EMBEDDING_MAX_RETRIES so the synchronous
+    /analyze path can use a smaller value than the background worker."""
     if not is_embedding_available():
         raise RuntimeError("Embedding service is not configured")
 
@@ -211,7 +214,7 @@ async def generate_query_embedding(text: str) -> list[float]:
     if cached is not None:
         return cached
 
-    vectors = await embedding_api_call_with_retry([text])
+    vectors = await embedding_api_call_with_retry([text], max_retries=max_retries)
     if not vectors or not vectors[0]:
         raise RuntimeError("Embedding API returned empty result")
     if len(vectors[0]) != settings.EMBEDDING_DIM:

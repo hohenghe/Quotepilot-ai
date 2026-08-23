@@ -1,4 +1,5 @@
 import os
+import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
@@ -14,7 +15,46 @@ from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, P
 from app.services.file_parser import parse_file
 from app.services.storage import get_storage
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/products", tags=["products"])
+
+# Upload guard: 10 MB max for product-list documents (CSV/XLSX/DOCX/PDF).
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
+_READ_CHUNK = 1024 * 1024
+
+# Fields whose change invalidates the stored embedding (must re-embed).
+_EMBEDDING_CONTENT_FIELDS = {"name", "category", "description", "technical_specs", "certifications"}
+
+# Magic-byte signatures for upload type validation (don't trust Content-Type).
+_MAGIC = {
+    ".pdf": (b"%PDF",),
+    ".xlsx": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),  # ZIP (xlsx/docx are ZIP)
+    ".docx": (b"PK\x03\x04", b"PK\x05\x06", b"PK\x07\x08"),
+}
+
+
+def _validate_magic(ext: str, content: bytes) -> None:
+    sigs = _MAGIC.get(ext)
+    if sigs is None:
+        return  # CSV has no reliable magic bytes; validated by parser.
+    if not content.startswith(sigs):
+        raise HTTPException(
+            status_code=400,
+            detail="File content does not match the declared type",
+        )
+
+
+async def _read_with_size_limit(file: UploadFile, max_size: int = MAX_UPLOAD_SIZE) -> bytes:
+    """Read an upload in chunks, rejecting as soon as the size limit is exceeded."""
+    buf = bytearray()
+    while True:
+        chunk = await file.read(_READ_CHUNK)
+        if not chunk:
+            break
+        buf.extend(chunk)
+        if len(buf) > max_size:
+            raise HTTPException(status_code=413, detail=f"File too large (max {max_size // (1024*1024)}MB)")
+    return bytes(buf)
 
 
 def _scope_by_seller(query, user: User):
@@ -131,7 +171,9 @@ async def upload_product_file(
     if ext not in allowed_exts:
         raise HTTPException(status_code=400, detail=f"Unsupported file type: {ext}")
 
-    content = await file.read()
+    content = await _read_with_size_limit(file, MAX_UPLOAD_SIZE)
+    _validate_magic(ext, content)
+
     storage_key = await get_storage().save(file.filename or "", content)
 
     doc = Document(
@@ -170,8 +212,9 @@ async def upload_product_file(
         await db.commit()
         await db.refresh(doc)
     except Exception as e:
+        logger.exception("Product file parse failed for %s", file.filename)
         doc.status = "failed"
-        doc.error_message = str(e)
+        doc.error_message = "Failed to parse file. Please check the format and try again."
         await db.commit()
         await db.refresh(doc)
 
@@ -195,6 +238,18 @@ async def update_product(
         raise HTTPException(status_code=400, detail="A product can have at most 10 images")
     for key, value in update_data.items():
         setattr(product, key, value)
+
+    # Re-enter the embedding pipeline when content fields change or the
+    # product is re-activated from a soft-deleted ("skipped") state. The worker
+    # claims "pending" products, recomputes the hash, and skips if unchanged —
+    # so this never creates duplicate work, only ensures stale vectors are
+    # regenerated when the searchable content actually changed.
+    content_changed = any(f in update_data for f in _EMBEDDING_CONTENT_FIELDS)
+    reactivated = update_data.get("is_active") is True and product.embedding_status == "skipped"
+    if content_changed or reactivated:
+        product.embedding_status = "pending"
+        product.embedding_hash = None
+        product.embedding_error = None
 
     await db.commit()
     await db.refresh(product)

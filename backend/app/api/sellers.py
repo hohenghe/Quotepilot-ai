@@ -25,12 +25,24 @@ async def seller_score(
 async def seller_products(
     seller_id: int,
     db: AsyncSession = Depends(get_db),
-    _: User | None = Depends(get_current_user),
+    caller: User | None = Depends(get_current_user),
 ):
-    """Public listing of a seller's active products (for buyers to browse)."""
+    """Public listing of a seller's active products (for buyers to browse).
+
+    Anonymous callers see only the store/display name — the seller's email is
+    NOT exposed to unauthenticated users (PII protection). Authenticated users
+    still receive it (used as a display fallback in the buyer inquiries list)."""
     seller = await db.get(User, seller_id)
     if not seller or seller.role != "seller":
         raise HTTPException(status_code=404, detail="Seller not found")
+
+    is_anon = caller is None
+    # Anonymous: store_name or name only (never email as a name fallback).
+    # Authenticated: store_name or name or email (preserves existing behavior).
+    display_name = seller.store_name or seller.name
+    if not is_anon and not display_name:
+        display_name = seller.email
+    exposed_email = None if is_anon else seller.email
 
     fav_subq = (
         select(func.count(SavedProduct.id))
@@ -48,15 +60,15 @@ async def seller_products(
     for p, fav in rows:
         resp = ProductResponse.model_validate(p)
         resp.favorite_count = fav or 0
-        resp.seller_name = seller.store_name or seller.name or seller.email
-        resp.seller_email = seller.email
+        resp.seller_name = display_name
+        resp.seller_email = exposed_email
         items.append(resp)
 
     score = await compute_seller_score(db, seller_id)
     return {
         "seller_id": seller_id,
-        "seller_name": seller.store_name or seller.name or seller.email,
-        "seller_email": seller.email,
+        "seller_name": display_name,
+        "seller_email": exposed_email,
         "score": score,
         "items": items,
     }

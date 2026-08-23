@@ -12,6 +12,9 @@ class Inquiry(Base):
     customer_email = Column(String(300), nullable=True)
     customer_company = Column(String(300), nullable=True)
     raw_message = Column(Text, nullable=False)
+    # Nullable: anonymous /analyze creates inquiries without a buyer. Set when
+    # the caller is authenticated so /quotes/generate can verify ownership.
+    buyer_id = Column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     analyses = relationship("InquiryAnalysis", back_populates="inquiry", cascade="all, delete-orphan", lazy="selectin")

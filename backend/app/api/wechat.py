@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import logging
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, or_
@@ -21,6 +22,7 @@ from app.models.seller_wechat_account import SellerWechatAccount
 from app.services.wechat import code_to_session, WechatLoginError
 from app.services.email import send_verification_email
 
+logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["wechat-auth"])
 
 
@@ -80,7 +82,8 @@ async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_
     try:
         session = await code_to_session(data.code)
     except WechatLoginError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.warning("WeChat code_to_session failed: %s", e)
+        raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
     except Exception:
         raise HTTPException(status_code=502, detail="WeChat login failed")
 
@@ -108,7 +111,8 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
     try:
         session = await code_to_session(data.code)
     except WechatLoginError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.warning("WeChat code_to_session failed: %s", e)
+        raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
     except Exception:
         raise HTTPException(status_code=502, detail="WeChat login failed")
 
@@ -184,7 +188,8 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
     try:
         session = await code_to_session(data.code)
     except WechatLoginError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        logger.warning("WeChat code_to_session failed: %s", e)
+        raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
     except Exception:
         raise HTTPException(status_code=502, detail="WeChat login failed")
 

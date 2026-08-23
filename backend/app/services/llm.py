@@ -258,7 +258,12 @@ async def _analyze_mock(raw_message: str) -> dict[str, Any]:
 # Public API
 # ═══════════════════════════════════════════════════════════════════
 
-async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
+async def analyze_inquiry(raw_message: str, raise_on_failure: bool = False) -> dict[str, Any]:
+    """Analyze a buyer inquiry. When LLM is configured but the call fails:
+    - raise_on_failure=True  → re-raise (caller returns an error, no DB garbage)
+    - raise_on_failure=False → fall back to mock analysis (legacy behavior)
+
+    When LLM is NOT configured, mock analysis is always used (dev mode)."""
     if is_llm_available():
         try:
             logger.info("Calling LLM: %s model=%s", settings.OPENAI_BASE_URL, settings.LLM_MODEL)
@@ -267,7 +272,9 @@ async def analyze_inquiry(raw_message: str) -> dict[str, Any]:
             result["translated"] = bool(result.get("translation"))
             return result
         except Exception as e:
-            logger.warning("AI analyze failed, falling back to mock: %s", e)
+            logger.warning("AI analyze failed: %s", e)
+            if raise_on_failure:
+                raise
     else:
         logger.info("LLM not configured, using mock analysis")
     result = await _analyze_mock(raw_message)

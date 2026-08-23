@@ -6,7 +6,14 @@ from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-engine = create_async_engine(settings.DATABASE_URL, echo=False)
+engine = create_async_engine(
+    settings.DATABASE_URL,
+    echo=False,
+    pool_size=settings.DB_POOL_SIZE,
+    max_overflow=settings.DB_MAX_OVERFLOW,
+    pool_recycle=settings.DB_POOL_RECYCLE,
+    pool_pre_ping=True,
+)
 async_session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
 
 
@@ -76,6 +83,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("customer_email", "TEXT", None),
             ("customer_company", "TEXT", None),
             ("raw_message", "TEXT NOT NULL", None),
+            ("buyer_id", "INTEGER", "users(id) ON DELETE SET NULL"),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
         "inquiry_analyses": [
@@ -248,40 +256,40 @@ async def init_db():
             await conn.execute(text(
                 "ALTER TABLE products DROP CONSTRAINT IF EXISTS products_sku_key"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop products_sku_key failed: %s", e)
 
         # Users: allow the same email across roles (buyer + seller)
         try:
             await conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS users_email_key"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop users_email_key failed: %s", e)
         try:
             await conn.execute(text("ALTER TABLE users DROP CONSTRAINT IF EXISTS uq_users_email"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop uq_users_email failed: %s", e)
         try:
             await conn.execute(text("DROP INDEX IF EXISTS ix_users_email"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop ix_users_email failed: %s", e)
         try:
             await conn.execute(text(
                 "CREATE UNIQUE INDEX IF NOT EXISTS uq_users_email_role ON users (email, role)"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Create uq_users_email_role failed: %s", e)
         try:
             await conn.execute(text("CREATE INDEX IF NOT EXISTS ix_users_email ON users (email)"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Create ix_users_email failed: %s", e)
 
         # seller_inquiries.inquiry_id: make nullable (send-inquiry flow does not link an Inquiry record)
         try:
             await conn.execute(text(
                 "ALTER TABLE seller_inquiries ALTER COLUMN inquiry_id DROP NOT NULL"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop NOT NULL on seller_inquiries.inquiry_id failed: %s", e)
 
         # users.email / users.password_hash: make nullable so WeChat-created sellers
         # can exist without an email or password.
@@ -289,20 +297,20 @@ async def init_db():
             await conn.execute(text(
                 "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop NOT NULL on users.email failed: %s", e)
         try:
             await conn.execute(text(
                 "ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL"
             ))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop NOT NULL on users.password_hash failed: %s", e)
 
         # reviews: drop product_id (reviews now target sellers instead of products)
         try:
             await conn.execute(text("ALTER TABLE reviews DROP COLUMN IF EXISTS product_id"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Drop reviews.product_id failed: %s", e)
 
         # Email verification: mark accounts that existed before the feature as
         # verified (runs only on the first deploy that introduces the column).
@@ -312,8 +320,8 @@ async def init_db():
                     "UPDATE users SET email_verified_at = COALESCE(created_at, NOW()) "
                     "WHERE email_verified_at IS NULL"
                 ))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("email_verified_at backfill failed: %s", e)
 
         # Phone numbers: backfill legacy users.phone as primary phone records.
         # Idempotent — only inserts a row when none exists for that user/phone.
@@ -347,6 +355,41 @@ async def init_db():
             ))
         except Exception as e:
             logger.warning("user_phones primary unique index failed: %s", e)
+
+        # ── Product indexes: ensure these exist even on pre-existing tables ──
+        # (model index=True only applies on fresh create_all, not migrated DBs).
+        for stmt, label in [
+            ("CREATE INDEX IF NOT EXISTS ix_products_is_active ON products (is_active)", "is_active"),
+            ("CREATE INDEX IF NOT EXISTS ix_products_seller_active ON products (seller_id, is_active)", "seller_active"),
+            ("CREATE INDEX IF NOT EXISTS ix_products_active_created ON products (is_active, created_at DESC)", "active_created"),
+            ("CREATE INDEX IF NOT EXISTS ix_products_category ON products (category)", "category"),
+            ("CREATE INDEX IF NOT EXISTS ix_products_active_embed_status ON products (is_active, embedding_status)", "active_embed_status"),
+        ]:
+            try:
+                await conn.execute(text(stmt))
+            except Exception as e:
+                logger.warning("Create product index %s failed: %s", label, e)
+
+        # ── saved_products: DB-level unique(user_id, product_id) ──
+        # The ORM UniqueConstraint only applies on fresh tables; this ensures it
+        # on migrated DBs too, closing a race that allows duplicate favorites.
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_saved_products_user_product "
+                "ON saved_products (user_id, product_id)"
+            ))
+        except Exception as e:
+            logger.warning("Create uq_saved_products_user_product failed: %s", e)
+
+        # ── reviews: DB-level unique(seller_id, user_id) ──
+        # Backs the application-level upsert so concurrent reviews can't duplicate.
+        try:
+            await conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS uq_reviews_seller_user "
+                "ON reviews (seller_id, user_id)"
+            ))
+        except Exception as e:
+            logger.warning("Create uq_reviews_seller_user failed: %s", e)
 
 
 async def _migrate_embedding_dimension(conn):

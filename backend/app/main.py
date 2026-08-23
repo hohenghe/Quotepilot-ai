@@ -5,10 +5,13 @@ Main application entry point.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.core.config import get_cors_origins, is_production
 from app.core.database import init_db
+from app.core.auth import require_admin
+from app.models.user import User
 from app.api.products import router as products_router
 from app.api.inquiries import router as inquiries_router
 from app.api.quotes import router as quotes_router
@@ -41,6 +44,7 @@ async def _embedding_worker():
             else:
                 await asyncio.sleep(5)
         except Exception:
+            logger.exception("Embedding worker crashed, sleeping 30s before retry")
             await asyncio.sleep(30)
 
 
@@ -61,6 +65,7 @@ async def _account_cleanup_worker():
                 )
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
         except Exception:
+            logger.exception("Account cleanup worker crashed, sleeping before retry")
             await asyncio.sleep(CLEANUP_INTERVAL_SECONDS)
 
 
@@ -69,7 +74,7 @@ async def _close_ai_client():
         from app.services.vision import close_ai_client
         await close_ai_client()
     except Exception:
-        pass
+        logger.exception("Failed to close AI client on shutdown")
 
 
 @asynccontextmanager
@@ -104,16 +109,16 @@ async def _ensure_admin():
         from seed_admin import create_admin
         await create_admin()
     except Exception:
-        pass
+        logger.exception("Failed to ensure admin account on startup")
 
 
 async def _ensure_test_accounts():
-    """Auto-create test accounts (seller + admin) on startup if they don't exist."""
+    """Auto-create test accounts (dev only) on startup if they don't exist."""
     try:
         from seed_admin import create_test_accounts
         await create_test_accounts()
     except Exception:
-        pass
+        logger.exception("Failed to ensure test accounts on startup")
 
 
 async def _reset_stuck_embeddings():
@@ -127,7 +132,7 @@ async def _reset_stuck_embeddings():
                 "WHERE embedding_status='processing' AND is_active=true"
             ))
     except Exception:
-        pass
+        logger.exception("Failed to reset stuck embeddings on startup")
 
 
 app = FastAPI(
@@ -139,7 +144,7 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -171,19 +176,18 @@ async def health():
 
 
 @app.get("/api/debug/llm-status")
-async def llm_status():
+async def llm_status(_: User = Depends(require_admin)):
     from app.core.config import is_llm_available, settings
     return {
         "llm_available": is_llm_available(),
         "base_url": settings.OPENAI_BASE_URL,
         "model": settings.LLM_MODEL,
         "key_configured": bool(settings.OPENAI_API_KEY),
-        "key_preview": (settings.OPENAI_API_KEY[:8] + "..." + settings.OPENAI_API_KEY[-4:]) if len(settings.OPENAI_API_KEY) > 12 else "NOT SET",
     }
 
 
 @app.get("/api/debug/embedding-status")
-async def embedding_status():
+async def embedding_status(_: User = Depends(require_admin)):
     from app.services.embedding import get_embedding_stats
     from app.core.database import async_session
     from app.core.config import is_embedding_available, settings

@@ -8,7 +8,7 @@ import {
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
 import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore, uploadImage } from "@/lib/api-client"
-import { CHINA_CITIES } from "@/lib/china-cities"
+import { CHINA_PROVINCES, CHINA_REGIONS, parseRegion, regionValue } from "@/lib/china-cities"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -66,7 +66,7 @@ export default function SellerPage() {
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
   const [profileLicense, setProfileLicense] = useState<string | null>(null)
   const [profilePhone, setProfilePhone] = useState("")
-  const [profileCountry, setProfileCountry] = useState<string>(CHINA_CITIES[0])
+  const [profileCountry, setProfileCountry] = useState<string>(regionValue(CHINA_PROVINCES[0], CHINA_REGIONS[CHINA_PROVINCES[0]][0]))
   const [savingProfile, setSavingProfile] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [uploadingLicense, setUploadingLicense] = useState(false)
@@ -147,7 +147,8 @@ export default function SellerPage() {
       setProfileAvatar(user.avatar_url || null)
       setProfileLicense(user.business_license_url || null)
       setProfilePhone(user.phone || "")
-      setProfileCountry(CHINA_CITIES.includes(user.country as typeof CHINA_CITIES[number]) ? user.country! : CHINA_CITIES[0])
+      const [province, city] = parseRegion(user.country)
+      setProfileCountry(regionValue(province, city))
     }
   }, [tab, user?.user_id])
 
@@ -250,6 +251,8 @@ export default function SellerPage() {
     const q = search.toLowerCase()
     return products.filter(p => p.name.toLowerCase().includes(q) || (p.sku || "").toLowerCase().includes(q))
   }, [products, search])
+
+  const [profileProvince, profileCity] = parseRegion(profileCountry)
 
   const allSelected = filtered.length > 0 && filtered.every(p => selectedIds.has(p.id))
 
@@ -731,9 +734,27 @@ export default function SellerPage() {
                 </div>
                 <div>
                   <label className="label">地区</label>
-                  <select className="input" value={profileCountry} onChange={e => setProfileCountry(e.target.value)}>
-                    {CHINA_CITIES.map(city => <option key={city} value={city}>{city}</option>)}
-                  </select>
+                  <div className="grid grid-cols-2 gap-3">
+                    <select
+                      className="input"
+                      aria-label="省份"
+                      value={profileProvince}
+                      onChange={e => {
+                        const province = e.target.value
+                        setProfileCountry(regionValue(province, CHINA_REGIONS[province][0]))
+                      }}
+                    >
+                      {CHINA_PROVINCES.map(province => <option key={province} value={province}>{province}</option>)}
+                    </select>
+                    <select
+                      className="input"
+                      aria-label="城市"
+                      value={profileCity}
+                      onChange={e => setProfileCountry(regionValue(profileProvince, e.target.value))}
+                    >
+                      {CHINA_REGIONS[profileProvince].map(city => <option key={city} value={city}>{city}</option>)}
+                    </select>
+                  </div>
                 </div>
                 <div>
                   <label className="label">{t.seller.memberId}</label>

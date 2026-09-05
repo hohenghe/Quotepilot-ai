@@ -4,7 +4,7 @@ import { useState } from "react"
 import { Eye, EyeOff, MailCheck } from "lucide-react"
 import Link from "next/link"
 import { COUNTRIES } from "@/lib/countries"
-import { CHINA_CITIES } from "@/lib/china-cities"
+import { CHINA_PROVINCES, CHINA_REGIONS, parseRegion, regionValue } from "@/lib/china-cities"
 import { resendVerification } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
@@ -36,7 +36,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [name, setName] = useState("")
-  const [country, setCountry] = useState<string>(role === "seller" ? CHINA_CITIES[0] : "CN")
+  const [country, setCountry] = useState<string>(role === "seller" ? regionValue(CHINA_PROVINCES[0], CHINA_REGIONS[CHINA_PROVINCES[0]][0]) : "CN")
   const [phone, setPhone] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -90,6 +90,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   }
 
   const displayError = localError || error
+  const [sellerProvince, sellerCity] = parseRegion(country)
 
   if (registeredEmail) {
     return (
@@ -173,19 +174,35 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
           <>
             <div className="mb-4">
               <label className="label">{role === "seller" ? "地区 *" : t.auth.country}</label>
-              <select
-                className="input-field"
-                value={country}
-                onChange={e => setCountry(e.target.value)}
-              >
-                {role === "seller"
-                  ? CHINA_CITIES.map(city => <option key={city} value={city}>{city}</option>)
-                  : COUNTRIES.map(c => (
-                    <option key={c.code} value={c.code}>
-                      {t.country[c.key as keyof typeof t.country]}
-                    </option>
+              {role === "seller" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <select
+                    className="input-field"
+                    aria-label="省份"
+                    value={sellerProvince}
+                    onChange={e => {
+                      const province = e.target.value
+                      setCountry(regionValue(province, CHINA_REGIONS[province][0]))
+                    }}
+                  >
+                    {CHINA_PROVINCES.map(province => <option key={province} value={province}>{province}</option>)}
+                  </select>
+                  <select
+                    className="input-field"
+                    aria-label="城市"
+                    value={sellerCity}
+                    onChange={e => setCountry(regionValue(sellerProvince, e.target.value))}
+                  >
+                    {CHINA_REGIONS[sellerProvince].map(city => <option key={city} value={city}>{city}</option>)}
+                  </select>
+                </div>
+              ) : (
+                <select className="input-field" value={country} onChange={e => setCountry(e.target.value)}>
+                  {COUNTRIES.map(c => (
+                    <option key={c.code} value={c.code}>{t.country[c.key as keyof typeof t.country]}</option>
                   ))}
-              </select>
+                </select>
+              )}
             </div>
 
             <div className="mb-4">

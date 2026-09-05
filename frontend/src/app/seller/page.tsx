@@ -8,7 +8,7 @@ import {
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
 import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore, uploadImage } from "@/lib/api-client"
-import { COUNTRIES } from "@/lib/countries"
+import { CHINA_CITIES } from "@/lib/china-cities"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -66,7 +66,7 @@ export default function SellerPage() {
   const [profileAvatar, setProfileAvatar] = useState<string | null>(null)
   const [profileLicense, setProfileLicense] = useState<string | null>(null)
   const [profilePhone, setProfilePhone] = useState("")
-  const [profileCountry, setProfileCountry] = useState("CN")
+  const [profileCountry, setProfileCountry] = useState<string>(CHINA_CITIES[0])
   const [savingProfile, setSavingProfile] = useState(false)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
   const [uploadingLicense, setUploadingLicense] = useState(false)
@@ -147,7 +147,7 @@ export default function SellerPage() {
       setProfileAvatar(user.avatar_url || null)
       setProfileLicense(user.business_license_url || null)
       setProfilePhone(user.phone || "")
-      setProfileCountry(user.country || "CN")
+      setProfileCountry(CHINA_CITIES.includes(user.country as typeof CHINA_CITIES[number]) ? user.country! : CHINA_CITIES[0])
     }
   }, [tab, user?.user_id])
 
@@ -730,11 +730,9 @@ export default function SellerPage() {
                   <input className="input" value={profilePhone} onChange={e => setProfilePhone(e.target.value)} />
                 </div>
                 <div>
-                  <label className="label">{t.auth.country}</label>
+                  <label className="label">地区</label>
                   <select className="input" value={profileCountry} onChange={e => setProfileCountry(e.target.value)}>
-                    {COUNTRIES.map(c => (
-                      <option key={c.code} value={c.code}>{t.country[c.key as keyof typeof t.country]}</option>
-                    ))}
+                    {CHINA_CITIES.map(city => <option key={city} value={city}>{city}</option>)}
                   </select>
                 </div>
                 <div>

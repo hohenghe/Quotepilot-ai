@@ -1,10 +1,11 @@
 "use client"
 
 import { useState } from "react"
-import { Zap, Menu, X, LogOut, LogIn } from "lucide-react"
+import { Menu, X, LogOut, LogIn } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import { useT } from "@/i18n/I18nProvider"
+import BrandLogo from "@/components/BrandLogo"
 
 export interface NavItem {
   key: string
@@ -50,13 +51,7 @@ export default function DashboardShell({
         }`}
       >
         <div className="h-16 flex items-center gap-2.5 px-4 border-b border-slate-200 flex-shrink-0">
-          <div className="w-8 h-8 rounded-lg bg-brand-600 text-white flex items-center justify-center flex-shrink-0">
-            <Zap className="w-4 h-4" />
-          </div>
-          <div className="leading-tight min-w-0 flex-1">
-            <p className="font-semibold text-slate-900 truncate">{t.common.appName}</p>
-            <p className="text-[11px] text-slate-500 truncate">{t.common.appTagline}</p>
-          </div>
+          <BrandLogo className="w-36 flex-1 min-w-0" />
           <div className="hidden lg:block flex-shrink-0">
             <LanguageSwitcher />
           </div>
@@ -134,10 +129,7 @@ export default function DashboardShell({
             <Menu className="w-5 h-5" />
           </button>
           <div className="flex items-center gap-2">
-            <div className="w-7 h-7 rounded-lg bg-brand-600 text-white flex items-center justify-center">
-              <Zap className="w-3.5 h-3.5" />
-            </div>
-            <span className="text-sm font-semibold text-slate-900">{t.common.appName}</span>
+            <BrandLogo className="w-28" />
           </div>
           <div className="ml-auto">
             <LanguageSwitcher />

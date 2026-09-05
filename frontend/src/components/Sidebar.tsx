@@ -7,11 +7,11 @@ import {
   Package,
   MessageSquareText,
   FileText,
-  Zap,
   X,
 } from "lucide-react"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import BrandLogo from "@/components/BrandLogo"
 
 export default function Sidebar({
   open,
@@ -48,15 +48,7 @@ export default function Sidebar({
       >
         {/* Logo */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-200">
-          <div className="flex items-center gap-3">
-            <div className="w-9 h-9 bg-brand-600 rounded-lg flex items-center justify-center">
-              <Zap className="w-5 h-5 text-white" />
-            </div>
-            <div>
-              <h1 className="text-lg font-bold text-gray-900">{t.common.appName}</h1>
-              <p className="text-xs text-gray-500">{t.common.appTagline}</p>
-            </div>
-          </div>
+          <BrandLogo className="w-40" />
           <button
             onClick={onClose}
             className="p-1.5 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg lg:hidden"

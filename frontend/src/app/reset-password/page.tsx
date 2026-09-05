@@ -6,6 +6,7 @@ import { KeyRound, XCircle } from "lucide-react"
 import { resetPassword } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import BrandLogo from "@/components/BrandLogo"
 
 export default function ResetPasswordPage() {
   const { t } = useT()
@@ -49,6 +50,7 @@ export default function ResetPasswordPage() {
       </div>
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4">
         <div className="text-center mb-6">
+          <BrandLogo className="w-40 mx-auto mb-5" />
           <div className="mx-auto w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center mb-4">
             <KeyRound className="w-6 h-6" />
           </div>

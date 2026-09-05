@@ -4,9 +4,11 @@ import { useState } from "react"
 import { Eye, EyeOff, MailCheck } from "lucide-react"
 import Link from "next/link"
 import { COUNTRIES } from "@/lib/countries"
+import { CHINA_CITIES } from "@/lib/china-cities"
 import { resendVerification } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import BrandLogo from "@/components/BrandLogo"
 
 export interface AuthFormData {
   email: string
@@ -34,7 +36,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [name, setName] = useState("")
-  const [country, setCountry] = useState("CN")
+  const [country, setCountry] = useState<string>(role === "seller" ? CHINA_CITIES[0] : "CN")
   const [phone, setPhone] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
@@ -96,6 +98,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
           <LanguageSwitcher />
         </div>
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4 text-center">
+          <BrandLogo className="w-40 mx-auto mb-5" />
           <div className="mx-auto w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center mb-4">
             <MailCheck className="w-6 h-6" />
           </div>
@@ -129,6 +132,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
       </div>
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4">
         <div className="text-center mb-6">
+          <BrandLogo className="w-44 mx-auto mb-5" />
           <h1 className="text-2xl font-bold text-slate-900">{title}</h1>
           <p className="text-sm text-slate-500 mt-1">
             {mode === "register" ? t.auth.createAccount : t.auth.signIn}
@@ -168,17 +172,19 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
         {mode === "register" && (
           <>
             <div className="mb-4">
-              <label className="label">{t.auth.country}</label>
+              <label className="label">{role === "seller" ? "地区 *" : t.auth.country}</label>
               <select
                 className="input-field"
                 value={country}
                 onChange={e => setCountry(e.target.value)}
               >
-                {COUNTRIES.map(c => (
-                  <option key={c.code} value={c.code}>
-                    {t.country[c.key as keyof typeof t.country]}
-                  </option>
-                ))}
+                {role === "seller"
+                  ? CHINA_CITIES.map(city => <option key={city} value={city}>{city}</option>)
+                  : COUNTRIES.map(c => (
+                    <option key={c.code} value={c.code}>
+                      {t.country[c.key as keyof typeof t.country]}
+                    </option>
+                  ))}
               </select>
             </div>
 

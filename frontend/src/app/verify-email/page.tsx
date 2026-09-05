@@ -6,6 +6,7 @@ import { MailCheck, XCircle, Loader2 } from "lucide-react"
 import { verifyEmail, resendVerification } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
+import BrandLogo from "@/components/BrandLogo"
 
 export default function VerifyEmailPage() {
   const { t } = useT()
@@ -41,6 +42,7 @@ export default function VerifyEmailPage() {
         <LanguageSwitcher />
       </div>
       <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-md mx-4 text-center">
+        <BrandLogo className="w-40 mx-auto mb-6" />
         {status === "loading" && (
           <>
             <Loader2 className="mx-auto w-10 h-10 text-brand-600 animate-spin" />

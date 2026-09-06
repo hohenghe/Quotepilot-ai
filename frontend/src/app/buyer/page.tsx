@@ -1,7 +1,6 @@
 "use client"
 
 import { useState, useRef, useEffect, useCallback } from "react"
-import Image from "next/image"
 import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star, Store, ImagePlus } from "lucide-react"
 import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct, uploadImage, updateProfile } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout, getToken } from "@/lib/auth"
@@ -283,20 +282,10 @@ export default function BuyerPage() {
     >
       {active === "discover" ? (
         <>
-          <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <header className="mb-6">
             <div>
               <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.buyer.title}</h1>
               <p className="mt-1 text-sm text-slate-500">{t.buyer.subtitle}</p>
-            </div>
-            <div className="w-full max-w-[280px] self-center rounded-xl border border-slate-200 bg-white px-3 py-2 shadow-sm sm:w-72 sm:self-auto">
-              <Image
-                src="/buyer-brand-logo.png"
-                alt="ZherMai 这儿卖"
-                width={1500}
-                height={500}
-                className="h-auto w-full"
-                priority
-              />
             </div>
           </header>
 

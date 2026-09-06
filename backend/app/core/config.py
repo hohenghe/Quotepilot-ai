@@ -97,6 +97,15 @@ class Settings(BaseSettings):
         extra = "allow"
 
     @model_validator(mode="after")
+    def _normalize_database_url(self):
+        """Use SQLAlchemy's asyncpg driver for bare PostgreSQL URLs."""
+        if self.DATABASE_URL.startswith("postgresql://"):
+            self.DATABASE_URL = self.DATABASE_URL.replace(
+                "postgresql://", "postgresql+asyncpg://", 1
+            )
+        return self
+
+    @model_validator(mode="after")
     def _validate_production_secrets(self):
         """Fail-closed: production must never boot with the dev JWT secret."""
         if self.ENV == "production":

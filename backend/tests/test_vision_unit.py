@@ -139,6 +139,8 @@ def test_prompts():
     check("vision prompt: sku not invented", "Never invent" in vis and "SKU" in vis)
     check("vision prompt: category enum listed", "led_lighting" in vis and "auto_parts" in vis)
     check("vision prompt: null when unconfirmed", "null" in vis.lower())
+    check("vision prompt: preserve original language", "preserve the language" in vis.lower())
+    check("vision prompt: no translation", "do not translate" in vis.lower())
 
 
 def test_sanitize_extra():

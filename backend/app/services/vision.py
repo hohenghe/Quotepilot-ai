@@ -73,12 +73,14 @@ Absolute prohibitions (to prevent hallucination):
 - sku MUST come from a SKU/model/part-number string literally visible in the image or OCR. Never invent or fabricate a SKU.
 - certifications MUST come from certification marks, logos, numbers, or text explicitly visible in the image/OCR. Never list certifications from general knowledge.
 - Never output a field that is not in the schema below. Never fabricate brand, material, weight, dimensions, or any value not literally shown.
+- For every text-valued product field, preserve the language used in the ORIGINAL IMAGE/OCR. Do NOT translate Chinese, Japanese, Korean, Arabic, or any other language into English (or translate English into another language).
+- Keep original wording, terminology, symbols, and mixed-language text. The only exception is category, which is a fixed internal enum required by the schema.
 
 Field rules:
-- name: the product name, only if clearly visible.
+- name: the product name, only if clearly visible. Keep the original language and wording exactly; do not translate or rewrite it.
 - category: must be EXACTLY one of: led_lighting, electronics, machinery, textiles, furniture, packaging, auto_parts, hardware, other. Choose a category only if you can confirm it from the image. Otherwise null.
-- technical_specs: compile ALL confirmable technical parameters from the image/OCR as structured text, one "key: value" item per line. Preserve numbers and units exactly as shown. Do not invent specs.
-- description: describe ONLY product information confirmable from the image. No speculation.
+- technical_specs: compile ALL confirmable technical parameters from the image/OCR as structured text, one "key: value" item per line. Preserve the source language, wording, numbers, and units exactly as shown. Do not translate or invent specs.
+- description: include ONLY product information confirmable from the image, using the original source language and wording. No translation or speculation.
 - moq / unit_price / price_range_low / price_range_high / lead_time_days / pricing: null unless explicitly stated in the image or OCR.
 
 Return ONLY valid JSON (no markdown, no code fences, no extra text) in exactly this shape (every field nullable):
@@ -334,7 +336,7 @@ async def _run_vision(data_url: str, ocr_text: str) -> tuple[str, dict]:
         + (ocr_text.strip() or "(no readable text recognized)")
         + "\n\nUsing the ORIGINAL IMAGE as the primary evidence and the OCR text as "
         "supplementary evidence, extract only the product attributes you can confirm. "
-        "Return null for any field you cannot confirm."
+        "Return null for any field you cannot confirm. Preserve the original language in all text fields; never translate text into English."
     )
     messages = [
         {"role": "system", "content": VISION_SYSTEM_PROMPT},

@@ -423,23 +423,6 @@ export default function SellerPage() {
             </div>
           </div>
 
-          <div className="card mb-6 overflow-hidden">
-            <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-3">
-              <div>
-                <h2 className="text-sm font-semibold text-slate-800">常见外贸平台</h2>
-                <p className="mt-0.5 text-xs text-slate-500">便于整理来自主流贸易平台的商品资料</p>
-              </div>
-              <span className="badge badge-neutral flex-shrink-0">Seller</span>
-            </div>
-            <Image
-              src="/seller-supported-platforms.png"
-              alt="常见外贸平台标识示例：Alibaba.com、Amazon Business、DHgate、Made-in-China.com、Global Sources、IndiaMART、Thomasnet、Faire"
-              width={1400}
-              height={600}
-              className="h-auto w-full"
-            />
-          </div>
-
           <div className="relative mb-4">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
@@ -786,6 +769,25 @@ export default function SellerPage() {
           </>
         )
       )}
+
+      <footer className="mt-12 border-t border-slate-200 pt-6">
+        <p className="mb-3 text-center text-xs text-slate-400">常见外贸平台</p>
+        <Image
+          src="/seller-supported-platforms.png"
+          alt="常见外贸平台标识示例：Alibaba.com、Amazon Business、DHgate、Made-in-China.com、Global Sources、IndiaMART、Thomasnet、Faire"
+          width={1400}
+          height={600}
+          className="mx-auto h-auto w-full max-w-4xl opacity-80"
+        />
+        <a
+          href="https://sell.zhermai.com"
+          target="_blank"
+          rel="noreferrer"
+          className="mt-4 block text-center text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+        >
+          Market · sell.zhermai.com
+        </a>
+      </footer>
 
       <ProductFormModal
         open={productModalOpen}

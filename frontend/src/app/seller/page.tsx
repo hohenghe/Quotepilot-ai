@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import Image from "next/image"
 import { useRouter } from "next/navigation"
 import {
   LayoutDashboard, Package, Mail, User, Upload, Trash2, Search, FileText,
@@ -420,6 +421,23 @@ export default function SellerPage() {
               <p className="text-sm text-slate-600">{t.seller.uploadCsv}</p>
               <p className="mt-1 text-xs text-slate-400">{t.products.uploadFile}</p>
             </div>
+          </div>
+
+          <div className="card mb-6 overflow-hidden">
+            <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-3">
+              <div>
+                <h2 className="text-sm font-semibold text-slate-800">常见外贸平台</h2>
+                <p className="mt-0.5 text-xs text-slate-500">便于整理来自主流贸易平台的商品资料</p>
+              </div>
+              <span className="badge badge-neutral flex-shrink-0">Seller</span>
+            </div>
+            <Image
+              src="/seller-supported-platforms.png"
+              alt="常见外贸平台标识示例：Alibaba.com、Amazon Business、DHgate、Made-in-China.com、Global Sources、IndiaMART、Thomasnet、Faire"
+              width={1400}
+              height={600}
+              className="h-auto w-full"
+            />
           </div>
 
           <div className="relative mb-4">

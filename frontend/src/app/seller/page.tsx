@@ -348,6 +348,7 @@ export default function SellerPage() {
       userEmail={user?.email}
       onSignOut={handleLogout}
     >
+      <div className="pb-24">
       {tab === "overview" && (
         <>
           <header className="mb-6">
@@ -770,23 +771,24 @@ export default function SellerPage() {
         )
       )}
 
-      <footer className="mt-12 border-t border-slate-200 pt-6">
-        <p className="mb-3 text-center text-xs text-slate-400">常见外贸平台</p>
-        <Image
-          src="/seller-supported-platforms.png"
-          alt="常见外贸平台标识示例：Alibaba.com、Amazon Business、DHgate、Made-in-China.com、Global Sources、IndiaMART、Thomasnet、Faire"
-          width={1400}
-          height={600}
-          className="mx-auto h-auto w-full max-w-4xl opacity-80"
-        />
-        <a
-          href="https://sell.zhermai.com"
-          target="_blank"
-          rel="noreferrer"
-          className="mt-4 block text-center text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
-        >
-          Market · sell.zhermai.com
-        </a>
+      <footer className="fixed inset-x-0 bottom-0 z-20 border-t border-slate-200 bg-white/95 px-4 py-2 shadow-[0_-4px_16px_rgba(15,23,42,0.06)] backdrop-blur lg:left-64">
+        <div className="mx-auto flex max-w-[1400px] items-center justify-center gap-4">
+          <Image
+            src="/seller-supported-platforms.png"
+            alt="常见外贸平台标识示例：Alibaba.com、Amazon Business、DHgate、Made-in-China.com、Global Sources、IndiaMART、Thomasnet、Faire"
+            width={1400}
+            height={600}
+            className="h-14 w-auto max-w-[68vw] object-contain opacity-75 sm:h-16"
+          />
+          <a
+            href="https://sell.zhermai.com"
+            target="_blank"
+            rel="noreferrer"
+            className="flex-shrink-0 text-sm font-medium text-brand-600 hover:text-brand-700 hover:underline"
+          >
+            Market
+          </a>
+        </div>
       </footer>
 
       <ProductFormModal
@@ -806,6 +808,7 @@ export default function SellerPage() {
         onConfirm={handleDeleteSelected}
         onCancel={() => setConfirmOpen(false)}
       />
+      </div>
     </DashboardShell>
   )
 }

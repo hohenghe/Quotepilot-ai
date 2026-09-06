@@ -7,6 +7,7 @@ import logging
 from contextlib import asynccontextmanager
 from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.core.config import get_cors_origins, is_production
 from app.core.database import init_db
@@ -31,6 +32,104 @@ logger = logging.getLogger(__name__)
 
 _worker_task: asyncio.Task | None = None
 _cleanup_task: asyncio.Task | None = None
+
+_MAX_DB_INIT_ATTEMPTS = 8
+_NON_RETRYABLE_DB_ERROR_MARKERS = (
+    "syntax error",
+    "undefined table",
+    "undefined column",
+    "relation does not exist",
+    "column does not exist",
+    "permission denied",
+    "authentication failed",
+    "password authentication failed",
+    "role does not exist",
+    "extension \"vector\" is not available",
+    "constraint violation",
+    "duplicate key",
+    "foreign key",
+    "not null violation",
+    "invalid input",
+)
+_RETRYABLE_DB_ERROR_MARKERS = (
+    "connection refused",
+    "connection reset",
+    "cannot assign requested address",
+    "temporary failure in name resolution",
+    "name or service not known",
+    "network is unreachable",
+    "timed out",
+    "timeout",
+    "server closed the connection unexpectedly",
+    "connection is closed",
+    "connection terminated",
+    "database system is starting up",
+    "database system is in recovery",
+    "database is unavailable",
+)
+
+
+def _database_error_text(exc: Exception) -> str:
+    """Collect chained DBAPI messages without exposing connection settings."""
+    messages = []
+    current: BaseException | None = exc
+    seen = set()
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        messages.append(str(current).lower())
+        current = (
+            getattr(current, "orig", None)
+            or current.__cause__
+            or current.__context__
+        )
+    return " ".join(messages)
+
+
+def is_retryable_database_error(exc: Exception) -> bool:
+    """Return whether a startup database failure is likely transient."""
+    if isinstance(exc, (OSError, ConnectionError)):
+        return True
+    if not isinstance(exc, DBAPIError):
+        return False
+
+    message = _database_error_text(exc)
+    if any(marker in message for marker in _NON_RETRYABLE_DB_ERROR_MARKERS):
+        return False
+
+    if any(marker in message for marker in _RETRYABLE_DB_ERROR_MARKERS):
+        return True
+
+    # SQLAlchemy marks transport-level disconnects without requiring us to
+    # classify every asyncpg exception class explicitly.
+    return isinstance(exc, OperationalError) and exc.connection_invalidated
+
+
+async def initialize_database_with_retry() -> None:
+    """Initialize the schema, allowing transient platform network failures."""
+    for attempt in range(1, _MAX_DB_INIT_ATTEMPTS + 1):
+        try:
+            await init_db()
+            logger.info("Database initialized successfully")
+            return
+        except (OSError, ConnectionError, OperationalError, DBAPIError) as exc:
+            if not is_retryable_database_error(exc):
+                raise
+            if attempt == _MAX_DB_INIT_ATTEMPTS:
+                logger.exception(
+                    "Database unavailable after %s attempts",
+                    _MAX_DB_INIT_ATTEMPTS,
+                )
+                raise
+
+            delay = min(2 ** (attempt - 1), 15)
+            logger.warning(
+                "Database connection failed (%s/%s): %s; retrying in %ss",
+                attempt,
+                _MAX_DB_INIT_ATTEMPTS,
+                exc,
+                delay,
+            )
+            await asyncio.sleep(delay)
 
 
 async def _embedding_worker():
@@ -81,7 +180,7 @@ async def _close_ai_client():
 async def lifespan(app: FastAPI):
     global _worker_task
     global _cleanup_task
-    await init_db()
+    await initialize_database_with_retry()
     await _reset_stuck_embeddings()
     await _ensure_admin()
     await _ensure_test_accounts()

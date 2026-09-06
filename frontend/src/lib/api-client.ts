@@ -405,6 +405,31 @@ export async function adminClearSavedProducts(): Promise<number> {
   return data.deleted_count
 }
 
+export async function adminSendTestVerificationEmail(email: string): Promise<{ message: string }> {
+  return await request("/api/admin/tests/verification-email", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  })
+}
+
+export async function adminTestLlm(prompt: string): Promise<{ ai_used: boolean; analysis: Record<string, unknown> }> {
+  return await request("/api/admin/tests/llm", {
+    method: "POST",
+    body: JSON.stringify({ prompt }),
+  })
+}
+
+export async function adminCreateTestProduct(): Promise<{ product_id: number; name: string; sku: string }> {
+  return await request("/api/admin/tests/products", { method: "POST" })
+}
+
+export async function adminDeleteTestProduct(productId: number): Promise<{ deleted_product_id: number }> {
+  return await request("/api/admin/tests/products", {
+    method: "DELETE",
+    body: JSON.stringify({ product_id: productId }),
+  })
+}
+
 // ── Seller Inquiries ──────────────────────────────────────────────
 
 export interface SellerInquiryItem {

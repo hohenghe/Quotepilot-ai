@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag } from "lucide-react"
+import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag, FlaskConical, Send, Bot, Plus } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
-import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview } from "@/lib/api-client"
+import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminTestLlm, adminCreateTestProduct, adminDeleteTestProduct } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -24,7 +24,7 @@ interface Stats {
   categories: Record<string, number>
 }
 
-type Tab = "overview" | "accounts" | "products" | "inquiries" | "reviews"
+type Tab = "overview" | "accounts" | "products" | "inquiries" | "reviews" | "testing"
 
 export default function AdminPage() {
   const { t } = useT()
@@ -71,6 +71,14 @@ export default function AdminPage() {
   const [clearingSaved, setClearingSaved] = useState(false)
   const [inquiries, setInquiries] = useState<Inquiry[]>([])
   const [loading, setLoading] = useState(true)
+  const [testEmail, setTestEmail] = useState("")
+  const [sendingTestEmail, setSendingTestEmail] = useState(false)
+  const [testEmailResult, setTestEmailResult] = useState<string | null>(null)
+  const [testPrompt, setTestPrompt] = useState("Please analyze a request for 500 LED desk lamps, 12W, CE certified, delivered to Germany.")
+  const [testingLlm, setTestingLlm] = useState(false)
+  const [llmResult, setLlmResult] = useState<Record<string, unknown> | null>(null)
+  const [testProduct, setTestProduct] = useState<{ product_id: number; name: string; sku: string } | null>(null)
+  const [testingProduct, setTestingProduct] = useState(false)
 
   const nav = [
     { key: "overview", label: t.nav.overview, icon: LayoutDashboard },
@@ -78,6 +86,7 @@ export default function AdminPage() {
     { key: "products", label: t.nav.products, icon: Package },
     { key: "inquiries", label: t.nav.inquiries, icon: Mail },
     { key: "reviews", label: t.admin.reviews, icon: Star },
+    { key: "testing", label: "测试工具", icon: FlaskConical },
   ]
 
   const loadAll = useCallback(() => {
@@ -277,6 +286,64 @@ export default function AdminPage() {
       await loadReviews()
     } catch {
       toast.push("error", t.common.somethingWentWrong)
+    }
+  }
+
+  const errorMessage = (error: unknown) => error instanceof Error ? error.message.replace(/^API error \d+:\s*/, "") : "操作失败"
+
+  const handleTestEmail = async () => {
+    setSendingTestEmail(true)
+    setTestEmailResult(null)
+    try {
+      const result = await adminSendTestVerificationEmail(testEmail.trim())
+      setTestEmailResult(result.message)
+      toast.push("success", "验证邮件测试已发送")
+    } catch (error) {
+      setTestEmailResult(errorMessage(error))
+      toast.push("error", "验证邮件测试失败")
+    } finally {
+      setSendingTestEmail(false)
+    }
+  }
+
+  const handleTestLlm = async () => {
+    setTestingLlm(true)
+    setLlmResult(null)
+    try {
+      const result = await adminTestLlm(testPrompt)
+      setLlmResult({ ai_used: result.ai_used, ...result.analysis })
+      toast.push("success", "大模型调用完成")
+    } catch (error) {
+      toast.push("error", errorMessage(error))
+    } finally {
+      setTestingLlm(false)
+    }
+  }
+
+  const handleCreateTestProduct = async () => {
+    setTestingProduct(true)
+    try {
+      const product = await adminCreateTestProduct()
+      setTestProduct(product)
+      toast.push("success", `已创建测试商品 #${product.product_id}`)
+    } catch (error) {
+      toast.push("error", errorMessage(error))
+    } finally {
+      setTestingProduct(false)
+    }
+  }
+
+  const handleDeleteTestProduct = async () => {
+    if (!testProduct) return
+    setTestingProduct(true)
+    try {
+      await adminDeleteTestProduct(testProduct.product_id)
+      toast.push("success", `已删除测试商品 #${testProduct.product_id}`)
+      setTestProduct(null)
+    } catch (error) {
+      toast.push("error", errorMessage(error))
+    } finally {
+      setTestingProduct(false)
     }
   }
 
@@ -713,6 +780,82 @@ export default function AdminPage() {
               </div>
             </div>
           )}
+        </>
+      )}
+
+      {tab === "testing" && (
+        <>
+          <header className="mb-6">
+            <h1 className="text-2xl font-semibold tracking-tight text-slate-900">测试工具</h1>
+            <p className="mt-1 text-sm text-slate-500">仅管理员可用。测试结果不会暴露密钥；测试商品不会出现在买家搜索中。</p>
+          </header>
+
+          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <section className="card p-6">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Mail className="w-5 h-5 text-brand-600" />
+                <h2 className="font-semibold">验证邮件投递</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">向指定地址发送验证邮件样式，用于检查 Brevo 配置和邮件送达。邮件中的链接仅用于测试，不能验证账户。</p>
+              <input
+                className="input mt-4"
+                type="email"
+                value={testEmail}
+                onChange={e => setTestEmail(e.target.value)}
+                placeholder="test@example.com"
+              />
+              <button className="btn-primary mt-3 w-full" onClick={handleTestEmail} disabled={sendingTestEmail || !testEmail.trim()}>
+                <Send className="w-4 h-4" />
+                {sendingTestEmail ? "发送中…" : "发送测试验证邮件"}
+              </button>
+              {testEmailResult && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 break-words">{testEmailResult}</p>}
+            </section>
+
+            <section className="card p-6">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Package className="w-5 h-5 text-brand-600" />
+                <h2 className="font-semibold">商品增删测试</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">创建一个不可见的管理员测试商品，再单独删除它；不会影响卖家商品或买家搜索结果。</p>
+              <button className="btn-primary mt-4 w-full" onClick={handleCreateTestProduct} disabled={testingProduct || !!testProduct}>
+                <Plus className="w-4 h-4" />
+                {testingProduct && !testProduct ? "创建中…" : "创建测试商品"}
+              </button>
+              {testProduct && (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-xs font-medium text-amber-900">#{testProduct.product_id} · {testProduct.sku}</p>
+                  <p className="mt-1 text-xs text-amber-800 break-words">{testProduct.name}</p>
+                  <button className="btn-danger mt-3 w-full" onClick={handleDeleteTestProduct} disabled={testingProduct}>
+                    <Trash2 className="w-4 h-4" />
+                    {testingProduct ? "删除中…" : "删除此测试商品"}
+                  </button>
+                </div>
+              )}
+            </section>
+
+            <section className="card p-6 xl:col-span-1">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Bot className="w-5 h-5 text-brand-600" />
+                <h2 className="font-semibold">大模型询盘分析</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">使用生产环境的询盘分析提示词直接调用已配置的大模型；配置缺失或调用失败会明确显示。</p>
+              <textarea
+                className="input mt-4 min-h-32 resize-y"
+                value={testPrompt}
+                maxLength={2000}
+                onChange={e => setTestPrompt(e.target.value)}
+              />
+              <button className="btn-primary mt-3 w-full" onClick={handleTestLlm} disabled={testingLlm || !testPrompt.trim()}>
+                <Bot className="w-4 h-4" />
+                {testingLlm ? "调用中…" : "调用大模型"}
+              </button>
+              {llmResult && (
+                <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap break-words">
+                  {JSON.stringify(llmResult, null, 2)}
+                </pre>
+              )}
+            </section>
+          </div>
         </>
       )}
 

@@ -5,9 +5,9 @@ export default function BrandLogo({ className = "" }: { className?: string }) {
     <Image
       src="/zhermai-logo.png"
       alt="ZherMai"
-      width={1500}
-      height={500}
-      className={`h-auto ${className}`}
+      width={1536}
+      height={1024}
+      className={`aspect-[3/1] h-auto object-cover ${className}`}
       priority
     />
   )

@@ -113,9 +113,10 @@ async def search_products_hybrid(
     else:
         # Keyword-only fallback: load all active products
         from sqlalchemy import select
+        from sqlalchemy.orm import defer
         from app.models.product import Product
         result = await db.execute(
-            select(Product).where(Product.is_active == True).limit(candidate_limit * 2)
+            select(Product).options(defer(Product.embedding, raiseload=True)).where(Product.is_active == True).limit(candidate_limit * 2)
         )
         all_products = list(result.scalars().all())
         candidates = [

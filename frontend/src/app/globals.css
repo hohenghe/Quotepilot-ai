@@ -14,7 +14,7 @@
 
 @layer components {
   .card {
-    @apply bg-white rounded-lg border border-slate-200 shadow-sm;
+    @apply bg-white rounded-xl border border-slate-200/90 shadow-[0_2px_8px_rgba(15,23,42,0.035)];
   }
 
   .btn {

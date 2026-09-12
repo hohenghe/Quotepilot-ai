@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import Image from "next/image"
+import dynamic from "next/dynamic"
 import { useRouter } from "next/navigation"
 import {
   LayoutDashboard, Package, Mail, User, Upload, Trash2, Search, FileText,
-  Copy, Clock, CheckCircle2, Inbox, Star, Flag, Pencil, ImagePlus, Plus,
+  Copy, Clock, CheckCircle2, Inbox, Star, Flag, Pencil, ImagePlus, Plus, BookOpen,
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
 import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore, uploadImage } from "@/lib/api-client"
@@ -23,10 +24,12 @@ import { useT } from "@/i18n/I18nProvider"
 import type { SellerInquiryItem, ReviewItem } from "@/lib/api-client"
 import type { Product } from "@/types"
 
-type Tab = "overview" | "products" | "inquiries" | "profile" | "reviews"
+const SellerTutorial = dynamic(() => import("@/components/SellerTutorial"), { loading: () => <PageLoader /> })
+type Tab = "overview" | "products" | "inquiries" | "profile" | "reviews" | "tutorial"
 
 export default function SellerPage() {
-  const { t } = useT()
+  const { t, locale } = useT()
+  const zh = locale.startsWith("zh")
   const router = useRouter()
   const toast = useToast()
 
@@ -37,11 +40,18 @@ export default function SellerPage() {
       return
     }
     setAuthReady(true)
+    try {
+      if (!localStorage.getItem(`seller-guide-v1:${getUser()?.user_id}`)) setTab("tutorial")
+    } catch { /* Storage may be unavailable in private browsing. */ }
   }, [router])
 
   const user = authReady ? getUser() : null
 
   const [tab, setTab] = useState<Tab>("overview")
+  const leaveTutorial = (next: Tab = "overview") => {
+    try { localStorage.setItem(`seller-guide-v1:${user?.user_id}`, "seen") } catch { /* Navigation remains available. */ }
+    setTab(next)
+  }
   const [products, setProducts] = useState<Product[]>([])
   const [productsLoading, setProductsLoading] = useState(true)
   const [productsError, setProductsError] = useState(false)
@@ -86,6 +96,7 @@ export default function SellerPage() {
     { key: "inquiries", label: t.nav.inquiries, icon: Mail },
     { key: "reviews", label: t.seller.reviews, icon: Star },
     { key: "profile", label: t.nav.profile, icon: User },
+    { key: "tutorial", label: zh ? "使用教程" : "Getting started", icon: BookOpen },
   ]
 
   const loadProducts = useCallback(async () => {
@@ -344,16 +355,20 @@ export default function SellerPage() {
     <DashboardShell
       nav={nav}
       active={tab}
-      onNavigate={(k) => setTab(k as Tab)}
+      onNavigate={(k) => tab === "tutorial" ? leaveTutorial(k as Tab) : setTab(k as Tab)}
       userEmail={user?.email}
       onSignOut={handleLogout}
     >
-      <div className="pb-[22rem] md:pb-[24rem]">
+      <div className="pb-44 md:pb-48">
+      {tab === "tutorial" && <SellerTutorial onClose={() => leaveTutorial()} />}
       {tab === "overview" && (
         <>
-          <header className="mb-6">
+          <header className="mb-5 flex flex-wrap items-center justify-between gap-3">
+            <div>
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.seller.overview}</h1>
             <p className="mt-1 text-sm text-slate-500">{t.seller.portalTitle}</p>
+            </div>
+            <div className="flex gap-2"><button className="btn-secondary" onClick={() => setTab("tutorial")}><BookOpen className="w-4 h-4" />{zh ? "使用教程" : "Getting started"}</button><button className="btn-primary" onClick={() => { setEditingProduct(null); setProductModalOpen(true) }}><Plus className="w-4 h-4" />{zh ? "新增商品" : "Add product"}</button></div>
           </header>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
             <StatCard label={t.seller.products} value={products.length} icon={Package} />
@@ -376,6 +391,22 @@ export default function SellerPage() {
             </div>
           )}
         </>
+      )}
+
+      {tab === "overview" && (
+        <section className="mt-5" aria-label={zh ? "常用操作" : "Quick actions"}>
+          <h2 className="text-sm font-semibold text-slate-700 mb-3">{zh ? "下一步，从这里开始" : "Your next step"}</h2>
+          <div className="grid gap-3 md:grid-cols-3">
+            {([
+              ["profile", User, zh ? "完善店铺资料" : "Complete your profile", zh ? "补充公司、地区与营业执照，让买家了解你的店铺。" : "Add company details, region and a business licence so buyers can learn about your store."],
+              ["products", Package, zh ? "管理商品目录" : "Build your catalog", zh ? "手动添加、拍照识别或批量导入，完善规格与报价。" : "Add products manually, recognize photos or import a catalog with specifications and pricing."],
+              ["inquiries", Mail, zh ? "跟进买家需求" : "Follow up with buyers", zh ? "查看询盘、核对需求，用 AI 起草回复后再确认发送。" : "Review requirements and prepare AI reply drafts, then verify and send through your chosen channel."],
+            ] as const).map(([key, Icon, title, description]) => <button key={key} onClick={() => setTab(key)} className="card p-5 text-left hover:border-brand-300 hover:shadow-md transition-shadow focus-visible:outline focus-visible:outline-2 focus-visible:outline-brand-500">
+              <Icon className="w-5 h-5 text-brand-600 mb-3" /><h3 className="font-medium text-slate-800">{title}</h3><p className="mt-2 text-sm leading-6 text-slate-500">{description}</p>
+            </button>)}
+          </div>
+          <div className="mt-3 rounded-xl border border-brand-100 bg-brand-50/60 p-4 text-sm text-slate-600 flex flex-wrap items-center justify-between gap-3"><p>{zh ? "想了解买家如何发现你的商品？教程中有完整的买家采购流程。" : "Want to understand how buyers discover your products? Explore the full buyer journey in the guide."}</p><button className="btn-ghost text-brand-700" onClick={() => setTab("tutorial")}>{zh ? "查看使用教程 →" : "Explore the guide →"}</button></div>
+        </section>
       )}
 
       {tab === "products" && (
@@ -675,7 +706,7 @@ export default function SellerPage() {
         ) : (
           <>
             <header className="mb-6">
-              <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.nav.profile}</h1>
+              <div className="flex flex-wrap items-center justify-between gap-3"><h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.nav.profile}</h1><button className="btn-secondary" onClick={() => setTab("tutorial")}><BookOpen className="w-4 h-4" />{zh ? "再次查看教程" : "Reopen guide"}</button></div>
             </header>
             <div className="card p-6 max-w-xl">
               <div className="space-y-4">
@@ -778,7 +809,7 @@ export default function SellerPage() {
             alt="常见外贸平台标识示例：Alibaba.com、Amazon Business、DHgate、Made-in-China.com、Global Sources、IndiaMART、Thomasnet、Faire"
             width={1400}
             height={600}
-            className="h-auto w-full max-w-2xl object-contain opacity-85"
+            className="h-28 md:h-32 w-auto max-w-full object-contain opacity-90"
           />
           <a
             href="https://sell.zhermai.com"

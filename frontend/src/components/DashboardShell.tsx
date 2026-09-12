@@ -43,7 +43,7 @@ export default function DashboardShell({
   }
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-gradient-to-br from-slate-100/70 via-slate-50 to-blue-50/30">
       {/* Sidebar */}
       <aside
         className={`fixed inset-y-0 left-0 z-40 w-64 bg-white border-r border-slate-200 flex flex-col transition-transform duration-200 ease-in-out lg:translate-x-0 ${
@@ -69,9 +69,10 @@ export default function DashboardShell({
             <button
               key={item.key}
               onClick={() => navigate(item.key)}
+              aria-current={active === item.key ? "page" : undefined}
               className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm font-medium transition-colors duration-150 ${
                 active === item.key
-                  ? "bg-brand-50 text-brand-700"
+                  ? "bg-brand-50 text-brand-700 shadow-sm ring-1 ring-brand-100"
                   : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
               }`}
             >
@@ -136,8 +137,8 @@ export default function DashboardShell({
           </div>
         </header>
 
-        <main className="p-4 md:p-6 lg:p-8">
-          <div className="mx-auto max-w-[1400px]">{children}</div>
+        <main className="p-4 md:p-5 lg:p-6">
+          <div className="mx-auto max-w-[1280px]">{children}</div>
         </main>
       </div>
     </div>

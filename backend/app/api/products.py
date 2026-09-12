@@ -3,6 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
+from sqlalchemy.orm import defer
 from pydantic import BaseModel
 from typing import List
 from app.core.database import get_db
@@ -96,7 +97,9 @@ async def list_products(
     total = total_result.scalar() or 0
 
     offset = (page - 1) * page_size
-    query = query.offset(offset).limit(page_size).order_by(Product.created_at.desc())
+    # API responses do not use vectors. Avoid transferring/decoding 1024 floats
+    # per product, and fail loudly if a future serializer accidentally needs it.
+    query = query.options(defer(Product.embedding, raiseload=True)).offset(offset).limit(page_size).order_by(Product.created_at.desc())
     result = await db.execute(query)
     rows = result.all()
 

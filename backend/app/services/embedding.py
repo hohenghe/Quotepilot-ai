@@ -47,10 +47,10 @@ async def _product_embedding_text(p: Product) -> str:
     )
 
 
-async def _recheck_product(db: AsyncSession, product_id: int) -> Product | None:
-    """Re-fetch a product by ID. Returns None if it no longer exists or is inactive."""
+async def _recheck_product(db: AsyncSession, product_id: int) -> int | None:
+    """Check active membership without loading product text, images or vectors."""
     result = await db.execute(
-        select(Product).where(Product.id == product_id, Product.is_active == True)
+        select(Product.id).where(Product.id == product_id, Product.is_active == True)
     )
     return result.scalar_one_or_none()
 

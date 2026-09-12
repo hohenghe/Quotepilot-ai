@@ -1,10 +1,15 @@
 import logging
+import re
+from datetime import datetime, timezone
+from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, delete, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, StrictBool, field_validator
+from sqlalchemy.exc import IntegrityError
+from app.core.security import generate_uid, hash_password
 from app.core.database import get_db
 from app.core.auth import require_admin
 from app.models.user import User
@@ -25,6 +30,53 @@ logger = logging.getLogger(__name__)
 
 class BatchDeleteRequest(BaseModel):
     ids: list[int]
+
+
+class CreateAccountRequest(BaseModel):
+    email: str = Field(max_length=300)
+    password: str = Field(min_length=8, max_length=128)
+    name: str = Field(min_length=1, max_length=200)
+    role: Literal["buyer", "seller", "admin"]
+    supports_distribution: StrictBool | None = None
+
+    @field_validator("email")
+    @classmethod
+    def validate_email(cls, value: str) -> str:
+        value = value.strip().lower()
+        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
+            raise ValueError("请输入有效邮箱")
+        return value
+
+    @field_validator("name")
+    @classmethod
+    def validate_name(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("请输入名称")
+        return value.strip()
+
+
+@router.post("/users", status_code=201)
+async def create_account(data: CreateAccountRequest, db: AsyncSession = Depends(get_db), admin: User = Depends(require_admin)):
+    if data.role == "seller" and data.supports_distribution is None:
+        raise HTTPException(status_code=422, detail="请选择是否支持铺货")
+    # Never overwrite an existing account, including an account in another role.
+    existing = await db.execute(select(User.id).where(func.lower(User.email) == data.email))
+    if existing.first():
+        raise HTTPException(status_code=409, detail="该邮箱已存在，请使用其他邮箱")
+    user = User(email=data.email, password_hash=hash_password(data.password),
+                name=data.name, store_name=data.name if data.role == "seller" else None,
+                role=data.role, restricted_port=data.role, country="CN", uid=generate_uid(),
+                supports_distribution=data.supports_distribution if data.role == "seller" else None,
+                email_verified_at=datetime.now(timezone.utc), is_active=True)
+    db.add(user)
+    try:
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="账号已存在或发生冲突，请刷新后重试")
+    await db.refresh(user)
+    logger.info("Admin %s created account %s restricted to %s", admin.id, user.id, user.role)
+    return {"id": user.id, "email": user.email, "role": user.role, "restricted_port": user.restricted_port}
 
 
 class TestEmailRequest(BaseModel):
@@ -72,8 +124,9 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     _: User = Depends(require_admin),
 ):
-    query = select(User).where(User.role.in_(["seller", "buyer"])).order_by(User.created_at.desc())
-    count_query = select(func.count(User.id)).where(User.role.in_(["seller", "buyer"]))
+    visible = or_(User.role.in_(["seller", "buyer"]), User.restricted_port == "admin")
+    query = select(User).where(visible).order_by(User.created_at.desc())
+    count_query = select(func.count(User.id)).where(visible)
     total = (await db.execute(count_query)).scalar() or 0
 
     rows = (await db.execute(query.offset((page - 1) * page_size).limit(page_size))).scalars().all()
@@ -84,6 +137,7 @@ async def list_users(
             "id": u.id,
             "email": u.email,
             "role": u.role,
+            "restricted_port": u.restricted_port,
             "name": u.name,
             "country": u.country,
             "phone": u.phone,

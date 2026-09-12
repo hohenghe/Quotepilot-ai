@@ -35,18 +35,24 @@ def require_auth(user: User | None = Depends(get_current_user)):
 
 
 def require_seller(user: User = Depends(require_auth)):
+    if getattr(user, "restricted_port", None) not in (None, "seller"):
+        raise HTTPException(status_code=403, detail="Account is restricted to another portal")
     if user.role not in ("seller", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Seller access required")
     return user
 
 
 def require_buyer(user: User = Depends(require_auth)):
+    if getattr(user, "restricted_port", None) not in (None, "buyer"):
+        raise HTTPException(status_code=403, detail="Account is restricted to another portal")
     if user.role not in ("buyer", "admin"):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Buyer access required")
     return user
 
 
 def require_admin(user: User = Depends(require_auth)):
+    if getattr(user, "restricted_port", None) not in (None, "admin"):
+        raise HTTPException(status_code=403, detail="Account is restricted to another portal")
     if user.role != "admin":
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin access required")
     return user

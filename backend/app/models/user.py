@@ -11,6 +11,7 @@ class User(Base):
     email = Column(String(300), nullable=True, index=True)
     password_hash = Column(String(300), nullable=True)
     role = Column(String(20), nullable=False, default="seller")
+    restricted_port = Column(String(20), nullable=True)
     name = Column(String(200), nullable=True)
     store_name = Column(String(200), nullable=True)
     supports_distribution = Column(Boolean, nullable=True)

@@ -2,6 +2,7 @@ const TOKEN_KEY = "quotepilot_token"
 const USER_KEY = "quotepilot_user"
 
 export interface AuthUser {
+  restricted_port?: "buyer" | "seller" | "admin" | null
   user_id: number
   email: string
   role: string

@@ -81,6 +81,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
+    restricted_port: str | None = None
     supports_distribution: bool | None = None
     token: str
     user_id: int
@@ -247,7 +248,9 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     if data.role:
         user = next((u for u in matched if u.role == data.role), None)
         if user is None:
-            user = next((u for u in matched if u.role == "admin"), None)
+            user = next((u for u in matched if u.role == "admin" and getattr(u, "restricted_port", None) is None), None)
+        if user is None:
+            raise HTTPException(status_code=403, detail="账号不能登录此端，请选择对应入口")
 
     if user is None:
         if len(matched) == 1:
@@ -255,14 +258,17 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         else:
             raise HTTPException(status_code=401, detail="Multiple accounts found; please sign in with your unique ID")
 
-    # Admins are system-seeded and skip email verification; everyone else must verify.
+    if getattr(user, "restricted_port", None) and data.role != user.restricted_port:
+        raise HTTPException(status_code=403, detail="账号不能登录此端，请选择对应入口")
+
+    # Admins skip email verification; everyone else must verify.
     if user.role != "admin" and user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
 
     token = create_access_token(user.id, user.role, user.auth_version or 0)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
+        restricted_port=getattr(user, "restricted_port", None), name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
@@ -408,7 +414,7 @@ async def change_password(
     token = create_access_token(user.id, user.role, user.auth_version or 0)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
+        restricted_port=getattr(user, "restricted_port", None), name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
@@ -418,7 +424,7 @@ async def change_password(
 async def me(user: User = Depends(require_auth)):
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
+        restricted_port=getattr(user, "restricted_port", None), name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
@@ -448,7 +454,7 @@ async def update_me(
     await db.refresh(user)
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
+        restricted_port=getattr(user, "restricted_port", None), name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )

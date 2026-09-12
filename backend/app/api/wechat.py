@@ -108,6 +108,8 @@ async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_
     user = await db.get(User, account.user_id)
     if not user or not user.is_active:
         raise HTTPException(status_code=403, detail="Account is disabled")
+    if getattr(user, "restricted_port", None) not in (None, "seller"):
+        raise HTTPException(status_code=403, detail="Account cannot sign in to the seller portal")
 
     if user.role != "admin" and user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")

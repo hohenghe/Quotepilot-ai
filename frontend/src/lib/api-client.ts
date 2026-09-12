@@ -270,6 +270,7 @@ export async function getQuoteById(id: number): Promise<Quote> {
 // ── Auth ──────────────────────────────────────────────────────────
 
 interface AuthResponse {
+  restricted_port?: "buyer" | "seller" | "admin" | null
   supports_distribution: boolean | null
   token: string
   user_id: number
@@ -703,6 +704,7 @@ export async function uploadImage(file: File, kind: "review" | "product" | "avat
 // ── Admin batch ─────────────────────────────────────────────────
 
 export interface AdminUserItem {
+  restricted_port?: "buyer" | "seller" | "admin" | null
   id: number
   email: string
   role: string
@@ -712,6 +714,10 @@ export interface AdminUserItem {
   uid: string | null
   score: number | null
   created_at: string | null
+}
+
+export async function adminCreateAccount(data: { email: string; password: string; name: string; role: "buyer" | "seller" | "admin"; supports_distribution?: boolean }): Promise<{ id: number; email: string; role: string }> {
+  return request("/api/admin/users", { method: "POST", body: JSON.stringify(data) })
 }
 
 export async function adminListUsers(page = 1, pageSize = 50): Promise<{ items: AdminUserItem[]; total: number }> {

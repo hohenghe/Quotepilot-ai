@@ -37,6 +37,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("email", "TEXT", None),
             ("password_hash", "TEXT", None),
             ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
+            ("restricted_port", "TEXT", None),
             ("name", "TEXT", None),
             ("store_name", "TEXT", None),
             ("supports_distribution", "BOOLEAN", None),

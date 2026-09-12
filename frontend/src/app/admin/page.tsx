@@ -15,6 +15,7 @@ import { useToast } from "@/components/Toast"
 import { useT } from "@/i18n/I18nProvider"
 import type { Product, Inquiry } from "@/types"
 import type { AdminUserItem, ReviewItem } from "@/lib/api-client"
+import { adminCreateAccount } from "@/lib/api-client"
 
 interface Stats {
   total_products: number
@@ -45,6 +46,25 @@ export default function AdminPage() {
   const [tab, setTab] = useState<Tab>("overview")
   const [stats, setStats] = useState<Stats | null>(null)
   const [accounts, setAccounts] = useState<AdminUserItem[]>([])
+  const [createOpen, setCreateOpen] = useState(false)
+  const [creatingAccount, setCreatingAccount] = useState(false)
+  const [createError, setCreateError] = useState("")
+  const [newAccount, setNewAccount] = useState({ email: "", password: "", name: "", role: "seller" as "buyer" | "seller" | "admin", distribution: "" })
+  const createAccount = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (creatingAccount) return
+    setCreateError("")
+    if (newAccount.role === "seller" && !newAccount.distribution) { setCreateError("请选择是否支持铺货"); return }
+    setCreatingAccount(true)
+    try {
+      await adminCreateAccount({ email: newAccount.email.trim(), password: newAccount.password, name: newAccount.name.trim(), role: newAccount.role, supports_distribution: newAccount.role === "seller" ? newAccount.distribution === "yes" : undefined })
+      setNewAccount({ email: "", password: "", name: "", role: "seller", distribution: "" })
+      setCreateOpen(false)
+      toast.push("success", "账号已创建，可从指定端直接登录")
+      await loadAccounts()
+    } catch (error) { setCreateError(error instanceof Error ? error.message : "创建失败") }
+    finally { setCreatingAccount(false) }
+  }
   const [accountsTotal, setAccountsTotal] = useState(0)
   const [accountsLoading, setAccountsLoading] = useState(false)
   const [selectedAccountIds, setSelectedAccountIds] = useState<Set<number>>(new Set())
@@ -233,9 +253,10 @@ export default function AdminPage() {
     }
   }
 
-  const allAccountsSelected = accounts.length > 0 && accounts.every(a => selectedAccountIds.has(a.id))
+  const selectableAccounts = accounts.filter(a => a.role !== "admin")
+  const allAccountsSelected = selectableAccounts.length > 0 && selectableAccounts.every(a => selectedAccountIds.has(a.id))
   const toggleSelectAllAccounts = () => {
-    setSelectedAccountIds(allAccountsSelected ? new Set() : new Set(accounts.map(a => a.id)))
+    setSelectedAccountIds(allAccountsSelected ? new Set() : new Set(selectableAccounts.map(a => a.id)))
   }
   const toggleSelectAccount = (id: number) => {
     setSelectedAccountIds(prev => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n })
@@ -439,7 +460,23 @@ export default function AdminPage() {
         <>
           <header className="mb-6">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">{t.admin.accounts}</h1>
+            <button className="btn-primary mt-3" onClick={() => { setCreateOpen(!createOpen); setCreateError("") }}><Plus className="w-4 h-4" />新增账号</button>
           </header>
+
+          {createOpen && <form className="card p-5 mb-5" onSubmit={createAccount}>
+            <h2 className="font-semibold mb-2">新增专属账号</h2>
+            <p className="text-sm text-slate-500 mb-4">管理员创建的账号无需验证邮件即可登录，仅允许指定端。卖家端包含网页与小程序，请妥善交付密码。</p>
+            <fieldset disabled={creatingAccount} className="grid md:grid-cols-2 gap-4">
+              <label className="label">邮箱<input className="input mt-1" type="email" required maxLength={300} autoComplete="off" value={newAccount.email} onChange={e => setNewAccount({ ...newAccount, email: e.target.value })} /></label>
+              <label className="label">名称 / 公司名称<input className="input mt-1" required maxLength={200} value={newAccount.name} onChange={e => setNewAccount({ ...newAccount, name: e.target.value })} /></label>
+              <label className="label">初始密码<input className="input mt-1" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={newAccount.password} onChange={e => setNewAccount({ ...newAccount, password: e.target.value })} /></label>
+              <label className="label">仅允许登录<select className="input mt-1" value={newAccount.role} onChange={e => setNewAccount({ ...newAccount, role: e.target.value as typeof newAccount.role })}><option value="seller">卖家端（网页 / 小程序）</option><option value="buyer">买家端</option><option value="admin">管理端</option></select></label>
+              {newAccount.role === "seller" && <label className="label">是否支持铺货（必选）<select required className="input mt-1" value={newAccount.distribution} onChange={e => setNewAccount({ ...newAccount, distribution: e.target.value })}><option value="">请选择</option><option value="yes">是</option><option value="no">否</option></select></label>}
+              {newAccount.role === "admin" && <p className="text-sm text-amber-700">管理端账号拥有管理权限，请仅分配给可信任的工作人员。</p>}
+            </fieldset>
+            {createError && <p role="alert" className="text-sm text-red-600 mt-3">{createError}</p>}
+            <div className="flex gap-2 mt-4"><button className="btn-primary" disabled={creatingAccount}>{creatingAccount ? "创建中…" : "创建账号"}</button><button type="button" className="btn-secondary" disabled={creatingAccount} onClick={() => { setCreateOpen(false); setNewAccount({ ...newAccount, password: "" }) }}>取消</button></div>
+          </form>}
 
           {selectedAccountIds.size > 0 && (
             <div className="sticky top-14 lg:top-0 z-10 mb-4 flex items-center justify-between gap-3 rounded-lg border border-brand-200 bg-brand-50 px-4 py-2.5">
@@ -485,6 +522,7 @@ export default function AdminPage() {
                             type="checkbox"
                             className="h-4 w-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500"
                             checked={selectedAccountIds.has(a.id)}
+                            disabled={a.role === "admin"}
                             onChange={() => toggleSelectAccount(a.id)}
                             aria-label={a.email}
                           />
@@ -493,6 +531,7 @@ export default function AdminPage() {
                         <td className="td text-slate-500">{a.email}</td>
                         <td className="td">
                           <span className="badge badge-neutral capitalize">{a.role}</span>
+                          {a.restricted_port && <span className="block text-xs text-slate-500 mt-1">仅限此端</span>}
                         </td>
                         <td className="td text-slate-500">
                           {a.role === "seller" ? (a.score != null ? `★ ${a.score.toFixed(1)}` : "—") : "—"}

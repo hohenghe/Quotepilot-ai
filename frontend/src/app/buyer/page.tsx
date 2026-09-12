@@ -107,7 +107,7 @@ export default function BuyerPage() {
       }
       const res = await login(data.email, data.password, "buyer")
       saveAuth(res.token, {
-        user_id: res.user_id, email: res.email, role: res.role, name: res.name,
+        restricted_port: res.restricted_port, user_id: res.user_id, email: res.email, role: res.role, name: res.name,
         store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
     } catch (e: any) {
@@ -235,7 +235,7 @@ export default function BuyerPage() {
     return <PageLoader />
   }
 
-  if (loggedIn && user && user.role !== "buyer" && user.role !== "admin") {
+  if (loggedIn && user && ((user.restricted_port && user.restricted_port !== "buyer") || (user.role !== "buyer" && user.role !== "admin"))) {
     return (
       <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
         <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-8 w-full max-w-sm text-center">

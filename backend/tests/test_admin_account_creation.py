@@ -57,7 +57,9 @@ class AccountTests(unittest.IsolatedAsyncioTestCase):
             guard(SimpleNamespace(role='admin', restricted_port=None))
 
     def test_invalid_input(self):
-        for override in ({'email': 'invalid'}, {'password': 'short'}, {'role': 'all'}, {'name': ' '}):
+        account = admin.CreateAccountRequest(email='wechat@test', password='password1', role='buyer', name='Review')
+        self.assertEqual(account.email, 'wechat@test')
+        for override in ({'email': ' '}, {'email': ''}, {'password': 'short'}, {'role': 'all'}, {'name': ' '}):
             values = dict(email='a@test.com', password='password1', role='buyer', name='Review')
             values.update(override)
             with self.assertRaises(ValidationError): admin.CreateAccountRequest(**values)

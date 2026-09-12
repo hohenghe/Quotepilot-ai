@@ -1,5 +1,4 @@
 import logging
-import re
 from datetime import datetime, timezone
 from typing import Literal
 from uuid import uuid4
@@ -41,10 +40,10 @@ class CreateAccountRequest(BaseModel):
 
     @field_validator("email")
     @classmethod
-    def validate_email(cls, value: str) -> str:
+    def validate_identifier(cls, value: str) -> str:
         value = value.strip().lower()
-        if not re.fullmatch(r"[^\s@]+@[^\s@]+\.[^\s@]+", value):
-            raise ValueError("请输入有效邮箱")
+        if not value:
+            raise ValueError("请输入登录账号")
         return value
 
     @field_validator("name")

@@ -467,7 +467,7 @@ export default function AdminPage() {
             <h2 className="font-semibold mb-2">新增专属账号</h2>
             <p className="text-sm text-slate-500 mb-4">管理员创建的账号无需验证邮件即可登录，仅允许指定端。卖家端包含网页与小程序，请妥善交付密码。</p>
             <fieldset disabled={creatingAccount} className="grid md:grid-cols-2 gap-4">
-              <label className="label">邮箱<input className="input mt-1" type="email" required maxLength={300} autoComplete="off" value={newAccount.email} onChange={e => setNewAccount({ ...newAccount, email: e.target.value })} /></label>
+              <label className="label">登录账号<input className="input mt-1" type="text" required minLength={1} maxLength={300} autoComplete="off" placeholder="邮箱或微信审核账号" value={newAccount.email} onChange={e => setNewAccount({ ...newAccount, email: e.target.value })} /></label>
               <label className="label">名称 / 公司名称<input className="input mt-1" required maxLength={200} value={newAccount.name} onChange={e => setNewAccount({ ...newAccount, name: e.target.value })} /></label>
               <label className="label">初始密码<input className="input mt-1" type="password" required minLength={8} maxLength={128} autoComplete="new-password" value={newAccount.password} onChange={e => setNewAccount({ ...newAccount, password: e.target.value })} /></label>
               <label className="label">仅允许登录<select className="input mt-1" value={newAccount.role} onChange={e => setNewAccount({ ...newAccount, role: e.target.value as typeof newAccount.role })}><option value="seller">卖家端（网页 / 小程序）</option><option value="buyer">买家端</option><option value="admin">管理端</option></select></label>

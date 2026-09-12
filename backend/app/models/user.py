@@ -13,6 +13,7 @@ class User(Base):
     role = Column(String(20), nullable=False, default="seller")
     name = Column(String(200), nullable=True)
     store_name = Column(String(200), nullable=True)
+    supports_distribution = Column(Boolean, nullable=True)
     avatar_url = Column(String(500), nullable=True)
     business_license_url = Column(String(500), nullable=True)
     country = Column(String(100), nullable=False, default="CN")

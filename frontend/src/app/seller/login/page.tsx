@@ -20,7 +20,7 @@ export default function SellerLoginPage() {
     setError(null)
     try {
       if (mode === "register") {
-        await register(data.email, data.password, data.name, data.country, data.phone, "seller")
+        await register(data.email, data.password, data.name, data.country, data.phone, "seller", data.supportsDistribution)
         return { type: "registered", email: data.email }
       }
       const res = await login(data.email, data.password, "seller")

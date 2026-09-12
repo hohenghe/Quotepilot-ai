@@ -270,6 +270,7 @@ export async function getQuoteById(id: number): Promise<Quote> {
 // ── Auth ──────────────────────────────────────────────────────────
 
 interface AuthResponse {
+  supports_distribution: boolean | null
   token: string
   user_id: number
   email: string
@@ -290,10 +291,10 @@ export async function login(identifier: string, password: string, role?: string)
   })
 }
 
-export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer"): Promise<{ ok: boolean; message: string }> {
+export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer", supportsDistribution?: boolean): Promise<{ ok: boolean; message: string }> {
   const data = await request<{ success: boolean; message: string }>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name, country, phone, role }),
+    body: JSON.stringify({ email, password, name, country, phone, role, supports_distribution: supportsDistribution }),
   })
   return { ok: !!data.success, message: data.message || "" }
 }

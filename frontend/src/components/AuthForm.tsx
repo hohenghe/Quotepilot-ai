@@ -11,6 +11,7 @@ import LanguageSwitcher from "@/components/LanguageSwitcher"
 import BrandLogo from "@/components/BrandLogo"
 
 export interface AuthFormData {
+  supportsDistribution?: boolean
   email: string
   password: string
   name: string
@@ -38,6 +39,7 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   const [name, setName] = useState("")
   const [country, setCountry] = useState<string>(role === "seller" ? regionValue(CHINA_PROVINCES[0], CHINA_REGIONS[CHINA_PROVINCES[0]][0]) : "CN")
   const [phone, setPhone] = useState("")
+  const [supportsDistribution, setSupportsDistribution] = useState<boolean | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
 
@@ -69,7 +71,11 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
       setLocalError(t.auth.companyRequired)
       return
     }
-    const result = await onSubmit({ email, password, name, country, phone })
+    if (role === "seller" && supportsDistribution === null) {
+      setLocalError(t.auth.distributionRequired)
+      return
+    }
+    const result = await onSubmit({ email, password, name, country, phone, supportsDistribution: supportsDistribution ?? undefined })
     if (result && result.type === "registered") {
       setRegisteredEmail(result.email)
     }
@@ -267,7 +273,20 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
           </div>
         )}
 
-        {mode === "login" && <div className="mb-6" />}
+        {mode === "register" && role === "seller" && (
+          <fieldset className="mb-6" disabled={loading}>
+            <legend className="text-sm font-medium text-slate-700 mb-2">{t.auth.supportsDistribution} *</legend>
+            <div className="flex gap-6">
+              {[true, false].map(value => (
+                <label key={String(value)} className="flex items-center gap-2 cursor-pointer">
+                  <input type="radio" name="supportsDistribution" required value={String(value)}
+                    checked={supportsDistribution === value} onChange={() => setSupportsDistribution(value)} />
+                  {value ? t.auth.distributionYes : t.auth.distributionNo}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        )}
 
         {role === "buyer" && (
           <Link

@@ -39,6 +39,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("role", "TEXT NOT NULL DEFAULT 'seller'", None),
             ("name", "TEXT", None),
             ("store_name", "TEXT", None),
+            ("supports_distribution", "BOOLEAN", None),
             ("avatar_url", "TEXT", None),
             ("business_license_url", "TEXT", None),
             ("country", "TEXT NOT NULL DEFAULT 'CN'", None),

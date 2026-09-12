@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, update, func
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 from app.core.database import get_db
 from app.core.security import (
     hash_password,
@@ -17,6 +17,7 @@ from app.core.auth import require_auth
 from app.models.user import User
 from app.models.auth_token import AuthToken
 from app.services.email import send_verification_email, send_password_reset_email
+from app.services.wechat import get_phone_number, WechatLoginError
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ RESEND_COOLDOWN = timedelta(seconds=60)
 
 
 class RegisterRequest(BaseModel):
+    supports_distribution: StrictBool | None = None
     email: str
     password: str
     name: str | None = None
@@ -35,6 +37,10 @@ class RegisterRequest(BaseModel):
     country: str
     phone: str
     role: str = "buyer"
+
+
+class WechatPhoneRequest(BaseModel):
+    phone_code: str
 
 
 class LoginRequest(BaseModel):
@@ -75,6 +81,7 @@ class ChangePasswordRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
+    supports_distribution: bool | None = None
     token: str
     user_id: int
     email: str
@@ -149,6 +156,8 @@ async def _recently_requested(db: AsyncSession, user_ids: list[int], token_type:
 
 @router.post("/register")
 async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+    if data.role == "seller" and data.supports_distribution is None:
+        raise HTTPException(status_code=422, detail="请选择是否支持铺货")
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
@@ -171,6 +180,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         email=data.email.strip(),
         password_hash=hash_password(data.password),
         role=data.role,
+        supports_distribution=data.supports_distribution if data.role == "seller" else None,
         name=data.name.strip() if data.name else None,
         store_name=data.store_name.strip() if data.store_name else None,
         country=data.country,
@@ -199,6 +209,20 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         "success": True,
         "message": "Registration successful. Please check your email to verify your account.",
     }
+
+
+@router.post("/wechat-phone")
+async def get_wechat_phone(data: WechatPhoneRequest):
+    """Return the number that the user just approved in WeChat's native UI."""
+    try:
+        phone = await get_phone_number(data.phone_code)
+    except WechatLoginError as e:
+        logger.warning("WeChat phone authorization failed: %s", e)
+        raise HTTPException(status_code=502, detail="WeChat phone authorization is temporarily unavailable")
+    except Exception:
+        logger.exception("WeChat phone authorization request failed")
+        raise HTTPException(status_code=502, detail="WeChat phone authorization failed")
+    return {"phone": phone}
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -238,7 +262,7 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     token = create_access_token(user.id, user.role, user.auth_version or 0)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name,
+        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
@@ -384,7 +408,7 @@ async def change_password(
     token = create_access_token(user.id, user.role, user.auth_version or 0)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name,
+        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
@@ -394,7 +418,7 @@ async def change_password(
 async def me(user: User = Depends(require_auth)):
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name,
+        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )
@@ -424,7 +448,7 @@ async def update_me(
     await db.refresh(user)
     return AuthResponse(
         token="", user_id=user.id, email=user.email, role=user.role,
-        name=user.name, store_name=user.store_name,
+        name=user.name, store_name=user.store_name, supports_distribution=user.supports_distribution,
         avatar_url=user.avatar_url, business_license_url=user.business_license_url,
         country=user.country, phone=user.phone, uid=user.uid,
     )

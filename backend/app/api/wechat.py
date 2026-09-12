@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel
+from pydantic import BaseModel, StrictBool
 
 from app.core.database import get_db
 from app.core.security import (
@@ -19,7 +19,7 @@ from app.core.security import (
 from app.models.user import User
 from app.models.auth_token import AuthToken
 from app.models.seller_wechat_account import SellerWechatAccount
-from app.services.wechat import code_to_session, WechatLoginError
+from app.services.wechat import code_to_session, get_phone_number, WechatLoginError
 from app.services.email import send_verification_email
 
 logger = logging.getLogger(__name__)
@@ -28,24 +28,31 @@ router = APIRouter(prefix="/api/auth", tags=["wechat-auth"])
 
 class WechatLoginRequest(BaseModel):
     code: str
+    phone_code: str
 
 
 class WechatBindRequest(BaseModel):
     code: str
+    phone_code: str
     identifier: str
     password: str
 
 
 class WechatRegisterRequest(BaseModel):
+    supports_distribution: StrictBool
     code: str
+    phone_code: str
     email: str
     password: str
     name: str | None = None
     country: str
-    phone: str
+    # Kept only for compatibility with old clients. For WeChat registration,
+    # the number stored below always comes from the official authorization API.
+    phone: str | None = None
 
 
 class WechatAuthResponse(BaseModel):
+    supports_distribution: bool | None = None
     bound: bool
     token: str | None = None
     user_id: int | None = None
@@ -63,6 +70,7 @@ class WechatAuthResponse(BaseModel):
 def _auth_payload(user: User) -> dict:
     return {
         "bound": True,
+        "supports_distribution": user.supports_distribution,
         "token": create_access_token(user.id, user.role, user.auth_version or 0),
         "user_id": user.id,
         "email": user.email,
@@ -81,6 +89,7 @@ def _auth_payload(user: User) -> dict:
 async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_db)):
     try:
         session = await code_to_session(data.code)
+        await get_phone_number(data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
@@ -110,6 +119,7 @@ async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_
 async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depends(get_db)):
     try:
         session = await code_to_session(data.code)
+        phone = await get_phone_number(data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
@@ -121,8 +131,6 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
 
     if len(data.password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
-    if not data.phone or not data.phone.strip():
-        raise HTTPException(status_code=400, detail="Phone number is required")
     if not data.name or not data.name.strip():
         raise HTTPException(status_code=400, detail="Company name is required for sellers")
 
@@ -142,10 +150,11 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
         email=data.email.strip(),
         password_hash=hash_password(data.password),
         role="seller",
+        supports_distribution=data.supports_distribution,
         name=data.name.strip(),
         store_name=None,
         country=data.country,
-        phone=data.phone.strip(),
+        phone=phone,
         uid=generate_uid(),
         email_verified_at=None,
     )
@@ -187,6 +196,7 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
 async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db)):
     try:
         session = await code_to_session(data.code)
+        await get_phone_number(data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")

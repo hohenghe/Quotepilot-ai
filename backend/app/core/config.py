@@ -1,7 +1,26 @@
 from pydantic_settings import BaseSettings
 from pydantic import model_validator
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _DEV_JWT_SECRET = "quotepilot-dev-secret-change-in-production"
+
+
+def _normalize_async_database_url(database_url: str) -> str:
+    """Adapt PostgreSQL URLs and libpq SSL parameters for asyncpg."""
+    parsed = urlsplit(database_url)
+    if parsed.scheme not in {"postgresql", "postgresql+asyncpg"}:
+        return database_url
+
+    query = parse_qsl(parsed.query, keep_blank_values=True)
+    normalized_query = [
+        ("ssl" if key == "sslmode" else key, value)
+        for key, value in query
+    ]
+    scheme = "postgresql+asyncpg"
+    return urlunsplit(parsed._replace(
+        scheme=scheme,
+        query=urlencode(normalized_query, doseq=True),
+    ))
 
 
 class Settings(BaseSettings):
@@ -98,11 +117,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def _normalize_database_url(self):
-        """Use SQLAlchemy's asyncpg driver for bare PostgreSQL URLs."""
-        if self.DATABASE_URL.startswith("postgresql://"):
-            self.DATABASE_URL = self.DATABASE_URL.replace(
-                "postgresql://", "postgresql+asyncpg://", 1
-            )
+        """Use asyncpg-compatible PostgreSQL connection settings."""
+        self.DATABASE_URL = _normalize_async_database_url(self.DATABASE_URL)
         return self
 
     @model_validator(mode="after")

@@ -71,6 +71,7 @@ export default function SellerPage() {
   const [loadingMore, setLoadingMore] = useState(false)
   const [inquiriesError, setInquiriesError] = useState(false)
   const [generatingId, setGeneratingId] = useState<number | null>(null)
+  const generatingReply = useRef(false)
 
   const [profileName, setProfileName] = useState("")
   const [profileStoreName, setProfileStoreName] = useState("")
@@ -165,6 +166,7 @@ export default function SellerPage() {
   }, [tab, user?.user_id])
 
   const handleAvatarUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (savingProfile || uploadingAvatar) return
     const file = e.target.files?.[0]
     if (!file) return
     setUploadingAvatar(true)
@@ -180,6 +182,7 @@ export default function SellerPage() {
   }
 
   const handleLicenseUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (savingProfile || uploadingLicense) return
     const file = e.target.files?.[0]
     if (!file) return
     setUploadingLicense(true)
@@ -195,6 +198,7 @@ export default function SellerPage() {
   }
 
   const handleSaveProfile = async () => {
+    if (savingProfile || uploadingAvatar || uploadingLicense) return
     setSavingProfile(true)
     try {
       const res = await updateProfile({
@@ -202,7 +206,6 @@ export default function SellerPage() {
         store_name: profileStoreName,
         avatar_url: profileAvatar ?? undefined,
         business_license_url: profileLicense ?? undefined,
-        phone: profilePhone,
         country: profileCountry,
       })
       const token = getToken()
@@ -325,6 +328,8 @@ export default function SellerPage() {
   }
 
   const handleGenerateReply = async (inquiryId: number) => {
+    if (generatingReply.current) return
+    generatingReply.current = true
     setGeneratingId(inquiryId)
     try {
       const reply = await generateSellerReply(inquiryId)
@@ -336,6 +341,7 @@ export default function SellerPage() {
       toast.push("error", t.common.somethingWentWrong)
     } finally {
       setGeneratingId(null)
+      generatingReply.current = false
     }
   }
 
@@ -629,7 +635,7 @@ export default function SellerPage() {
                     <button
                       className="btn-primary w-full"
                       onClick={() => handleGenerateReply(inq.id)}
-                      disabled={generatingId === inq.id}
+                      disabled={generatingId !== null}
                     >
                       <FileText className="w-4 h-4" />
                       {generatingId === inq.id ? t.seller.generating : t.seller.generateReply}
@@ -736,7 +742,7 @@ export default function SellerPage() {
                     <label className="btn-secondary btn-sm cursor-pointer">
                       <ImagePlus className="w-4 h-4" />
                       {uploadingAvatar ? t.common.loading : t.seller.uploadAvatar}
-                      <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar} />
+                      <input type="file" accept="image/*" className="hidden" onChange={handleAvatarUpload} disabled={uploadingAvatar || savingProfile} />
                     </label>
                   </div>
                 </div>
@@ -753,7 +759,7 @@ export default function SellerPage() {
                     <label className="btn-secondary btn-sm cursor-pointer">
                       <ImagePlus className="w-4 h-4" />
                       {uploadingLicense ? t.common.loading : t.seller.uploadLicense}
-                      <input type="file" accept="image/*" className="hidden" onChange={handleLicenseUpload} disabled={uploadingLicense} />
+                      <input type="file" accept="image/*" className="hidden" onChange={handleLicenseUpload} disabled={uploadingLicense || savingProfile} />
                     </label>
                   </div>
                 </div>
@@ -763,7 +769,7 @@ export default function SellerPage() {
                 </div>
                 <div>
                   <label className="label">{t.auth.phone}</label>
-                  <input className="input" value={profilePhone} onChange={e => setProfilePhone(e.target.value)} />
+                  <input className="input bg-slate-50" value={profilePhone} readOnly />
                 </div>
                 <div>
                   <label className="label">地区</label>
@@ -793,7 +799,7 @@ export default function SellerPage() {
                   <label className="label">{t.seller.memberId}</label>
                   <input className="input bg-slate-50" value={user?.uid || "—"} disabled />
                 </div>
-                <button className="btn-primary" onClick={handleSaveProfile} disabled={savingProfile}>
+                <button className="btn-primary" onClick={handleSaveProfile} disabled={savingProfile || uploadingAvatar || uploadingLicense}>
                   {savingProfile ? t.common.loading : t.seller.saveProfile}
                 </button>
               </div>

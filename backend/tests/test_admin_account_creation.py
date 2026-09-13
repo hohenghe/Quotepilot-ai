@@ -11,9 +11,25 @@ from pydantic import ValidationError
 from app.api import admin, auth
 from app.core.auth import require_seller, require_buyer, require_admin
 from app.core.security import verify_password
+from app.core import auth as auth_dependencies
 
 
 class AccountTests(unittest.IsolatedAsyncioTestCase):
+    async def test_invalid_token_subject_is_rejected_before_query(self):
+        for payload in ({}, {'sub': None}, {'sub': []}, {'sub': 'abc'}, {'sub': '-1'}, {'sub': '0'}, {'sub': '2147483648'}, {'sub': '9' * 100}):
+            db = SimpleNamespace(execute=AsyncMock())
+            with patch.object(auth_dependencies, 'decode_access_token', return_value=payload):
+                self.assertIsNone(await auth_dependencies.get_current_user(SimpleNamespace(credentials='token'), db))
+            db.execute.assert_not_awaited()
+
+    async def test_disabled_account_cannot_reuse_token(self):
+        for active, version, accepted in ((False, 0, False), (True, 0, True), (True, 1, False)):
+            user = SimpleNamespace(id=1, is_active=active, auth_version=version)
+            db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: user)))
+            with patch.object(auth_dependencies, 'decode_access_token', return_value={'sub': '1', 'ver': 0}):
+                result = await auth_dependencies.get_current_user(SimpleNamespace(credentials='token'), db)
+            self.assertIs(result, user if accepted else None)
+
     async def test_create_each_port(self):
         for role in ('buyer', 'seller', 'admin'):
             added = []

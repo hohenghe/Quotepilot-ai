@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { X, ImagePlus, Trash2, Loader2, Camera, ScanLine } from "lucide-react"
 import { createProduct, updateProduct, uploadImage, recognizeProduct } from "@/lib/api-client"
 import type { ProductPayload, RecognizedFields } from "@/lib/api-client"
@@ -43,6 +43,9 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
   const [saving, setSaving] = useState(false)
   const [recognizing, setRecognizing] = useState(false)
   const [isMobile, setIsMobile] = useState(false)
+  const operationActive = useRef(false)
+  const busy = uploading || recognizing || saving
+  const closeWhenIdle = () => { if (!operationActive.current) onClose() }
 
   useEffect(() => {
     const touch = typeof navigator !== "undefined" && (navigator.maxTouchPoints > 0 || "ontouchstart" in window)
@@ -75,7 +78,7 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !operationActive.current) onClose() }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [open, onClose])
@@ -85,6 +88,7 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
   const num = (v: string) => (v.trim() === "" ? null : Number(v))
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (operationActive.current) return
     const file = e.target.files?.[0]
     if (!file) return
     if (images.length >= MAX_IMAGES) {
@@ -92,6 +96,7 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
       e.target.value = ""
       return
     }
+    operationActive.current = true
     setUploading(true)
     try {
       const res = await uploadImage(file, "product")
@@ -100,18 +105,22 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
       toast.push("error", t.common.somethingWentWrong)
     } finally {
       setUploading(false)
+      operationActive.current = false
       e.target.value = ""
     }
   }
 
   const removeImage = (index: number) => {
+    if (operationActive.current) return
     setImages(prev => prev.filter((_, i) => i !== index))
   }
 
   const handleRecognize = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (operationActive.current) return
     const file = e.target.files?.[0]
     e.target.value = ""
     if (!file) return
+    operationActive.current = true
     setRecognizing(true)
     const canAddImage = images.length < MAX_IMAGES
     let gotAny = false
@@ -154,11 +163,13 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
       }
     } finally {
       setRecognizing(false)
+      operationActive.current = false
     }
   }
 
   const handleSubmit = async () => {
-    if (!name.trim()) return
+    if (!name.trim() || operationActive.current) return
+    operationActive.current = true
     setSaving(true)
     const payload: ProductPayload = {
       name: name.trim(),
@@ -187,23 +198,24 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
       toast.push("error", t.common.somethingWentWrong)
     } finally {
       setSaving(false)
+      operationActive.current = false
     }
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <div className="fixed inset-0 bg-black/40" onClick={closeWhenIdle} aria-hidden />
       <div className="relative bg-white w-full sm:max-w-2xl sm:rounded-xl border border-slate-200 shadow-lg max-h-[92vh] flex flex-col rounded-t-2xl">
         <div className="flex items-center justify-between gap-3 px-5 py-4 border-b border-slate-200 flex-shrink-0">
           <h2 className="text-lg font-semibold text-slate-900">
             {initial ? t.seller.editProduct : t.seller.addProduct}
           </h2>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg" aria-label={t.common.cancel}>
+          <button onClick={closeWhenIdle} disabled={busy} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg" aria-label={t.common.cancel}>
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+        <fieldset disabled={busy} className="flex-1 min-h-0 overflow-y-auto px-5 py-4 space-y-4">
           <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4">
             <div className="flex items-center gap-2 mb-1">
               <ScanLine className="w-4 h-4 text-brand-600" />
@@ -313,11 +325,11 @@ export default function ProductFormModal({ open, initial, onClose, onSaved }: Pr
               )}
             </div>
           </div>
-        </div>
+        </fieldset>
 
         <div className="px-5 py-4 border-t border-slate-200 flex gap-3 flex-shrink-0">
-          <button className="btn-secondary flex-1" onClick={onClose}>{t.common.cancel}</button>
-          <button className="btn-primary flex-1" onClick={handleSubmit} disabled={saving || !name.trim()}>
+          <button className="btn-secondary flex-1" onClick={closeWhenIdle} disabled={busy}>{t.common.cancel}</button>
+          <button className="btn-primary flex-1" onClick={handleSubmit} disabled={busy || !name.trim()}>
             {saving ? t.common.loading : t.seller.save}
           </button>
         </div>

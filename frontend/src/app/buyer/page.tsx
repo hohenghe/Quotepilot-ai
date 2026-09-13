@@ -26,6 +26,8 @@ export default function BuyerPage() {
   const [showAuth, setShowAuth] = useState(false)
   const [sentInquiries, setSentInquiries] = useState<Set<number>>(new Set())
   const [sendingId, setSendingId] = useState<number | null>(null)
+  const inquiryOperation = useRef(false)
+  const [analyzedMessage, setAnalyzedMessage] = useState("")
 
   const [active, setActive] = useState("discover")
   const [rawMessage, setRawMessage] = useState("")
@@ -118,32 +120,40 @@ export default function BuyerPage() {
   }
 
   const handleAnalyze = async () => {
-    if (!rawMessage.trim()) return
+    if (!rawMessage.trim() || inquiryOperation.current) return
+    inquiryOperation.current = true
+    const message = rawMessage.trim()
     setAnalyzing(true)
     setResult(null)
     setAnalysisError(null)
     try {
-      const res = await analyzeAndMatch(rawMessage, user?.email || undefined)
+      const res = await analyzeAndMatch(message, user?.email || undefined)
+      setAnalyzedMessage(message)
+      setSentInquiries(new Set())
       setResult(res)
     } catch (e: any) {
       setAnalysisError(e.message || t.common.somethingWentWrong)
       toast.push("error", e.message || t.common.somethingWentWrong)
     } finally {
       setAnalyzing(false)
+      inquiryOperation.current = false
     }
   }
 
   const handleSendInquiry = async (productId: number) => {
     if (!requireLogin()) return
+    if (inquiryOperation.current || !result || !analyzedMessage || sentInquiries.has(productId)) return
+    inquiryOperation.current = true
     setSendingId(productId)
     try {
-      await sendInquiryToSeller(rawMessage, productId, user?.email || undefined)
+      await sendInquiryToSeller(analyzedMessage, productId, user?.email || undefined)
       setSentInquiries(prev => new Set(prev).add(productId))
       toast.push("success", t.buyer.inquirySent)
     } catch (e: any) {
       toast.push("error", e.message || t.common.somethingWentWrong)
     } finally {
       setSendingId(null)
+      inquiryOperation.current = false
     }
   }
 
@@ -316,7 +326,7 @@ export default function BuyerPage() {
                 <button
                   className="btn-primary w-full mt-4 py-2.5"
                   onClick={handleAnalyze}
-                  disabled={analyzing || !rawMessage.trim()}
+                  disabled={analyzing || sendingId !== null || !rawMessage.trim()}
                 >
                   {analyzing ? (
                     <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {t.buyer.analyzing}</>
@@ -404,7 +414,7 @@ export default function BuyerPage() {
                       <div className="mt-4 pt-4 border-t border-slate-100 space-y-2">
                         <button
                           onClick={() => handleSendInquiry(mp.product_id)}
-                          disabled={sent || sendingId === mp.product_id}
+                          disabled={sent || sendingId !== null || analyzing}
                           className="btn-primary w-full"
                         >
                           <Send className="w-4 h-4" />

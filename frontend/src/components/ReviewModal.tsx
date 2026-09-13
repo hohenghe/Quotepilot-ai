@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
+import { useState, useEffect, useCallback, useRef } from "react"
 import { X, Star, Trash2, ImagePlus } from "lucide-react"
 import { getSellerReviews, createReview, deleteReview, uploadImage } from "@/lib/api-client"
 import { getUser } from "@/lib/auth"
@@ -39,6 +39,8 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
   const [images, setImages] = useState<string[]>([])
   const [uploading, setUploading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+  const operationActive = useRef(false)
+  const closeWhenIdle = () => { if (!operationActive.current) onClose() }
 
   const currentUser = getUser()
 
@@ -60,7 +62,7 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
 
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !operationActive.current) onClose() }
     document.addEventListener("keydown", onKey)
     return () => document.removeEventListener("keydown", onKey)
   }, [open, onClose])
@@ -68,8 +70,10 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
   if (!open) return null
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (operationActive.current) return
     const file = e.target.files?.[0]
     if (!file) return
+    operationActive.current = true
     setUploading(true)
     try {
       const res = await uploadImage(file)
@@ -78,12 +82,14 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
       toast.push("error", t.common.somethingWentWrong)
     } finally {
       setUploading(false)
+      operationActive.current = false
       e.target.value = ""
     }
   }
 
   const handleSubmit = async () => {
-    if (rating <= 0) return
+    if (rating <= 0 || operationActive.current) return
+    operationActive.current = true
     setSubmitting(true)
     try {
       await createReview(sellerId, rating, content, images)
@@ -96,6 +102,7 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
       toast.push("error", t.common.somethingWentWrong)
     } finally {
       setSubmitting(false)
+      operationActive.current = false
     }
   }
 
@@ -111,7 +118,7 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} aria-hidden />
+      <div className="fixed inset-0 bg-black/40" onClick={closeWhenIdle} aria-hidden />
       <div className="relative bg-white rounded-xl border border-slate-200 shadow-lg w-full max-w-lg max-h-[85vh] flex flex-col" role="dialog" aria-modal="true">
         <div className="flex items-start justify-between gap-3 px-5 py-4 border-b border-slate-200 flex-shrink-0">
           <div className="min-w-0">
@@ -124,7 +131,7 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
               </div>
             )}
           </div>
-          <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg" aria-label={t.common.cancel}>
+          <button onClick={closeWhenIdle} disabled={uploading || submitting} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg" aria-label={t.common.cancel}>
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -198,13 +205,13 @@ export default function ReviewModal({ sellerId, sellerName, open, canWrite, onCl
               <label className="btn-secondary btn-sm cursor-pointer">
                 <ImagePlus className="w-4 h-4" />
                 {t.review.addImage}
-                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading} />
+                <input type="file" accept="image/*" className="hidden" onChange={handleImageUpload} disabled={uploading || submitting} />
               </label>
               {images.map((img, i) => (
                 <img key={i} src={img} alt="" className="w-10 h-10 object-cover rounded-lg border border-slate-200" />
               ))}
             </div>
-            <button className="btn-primary w-full" onClick={handleSubmit} disabled={submitting || rating <= 0}>
+            <button className="btn-primary w-full" onClick={handleSubmit} disabled={submitting || uploading || rating <= 0}>
               {submitting ? t.review.submitting : t.review.submit}
             </button>
           </div>

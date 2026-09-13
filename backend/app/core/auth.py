@@ -18,9 +18,15 @@ async def get_current_user(
     payload = decode_access_token(credentials.credentials)
     if not payload:
         return None
-    result = await db.execute(select(User).where(User.id == int(payload["sub"])))
+    subject = payload.get("sub")
+    if not isinstance(subject, str) or not subject.isascii() or not subject.isdecimal():
+        return None
+    # PostgreSQL user IDs are signed 32-bit integers.
+    if len(subject) > 10 or not 0 < int(subject) <= 2147483647:
+        return None
+    result = await db.execute(select(User).where(User.id == int(subject)))
     user = result.scalar_one_or_none()
-    if not user:
+    if not user or not user.is_active:
         return None
     # Reject tokens issued before a password reset (auth_version bump).
     if payload.get("ver", 0) != (user.auth_version or 0):

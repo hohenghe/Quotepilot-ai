@@ -22,6 +22,7 @@ from app.schemas.inquiry import (
 )
 from app.services.llm import analyze_inquiry
 from app.services.rag import search_products_hybrid
+from app.services.supplier_matching import select_supplier_matches
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/inquiries", tags=["inquiries"])
@@ -139,7 +140,7 @@ async def analyze_and_match(
         # ── 2. Vector search (brief DB reads only, no write transaction) ──
         try:
             match_results = await search_products_hybrid(
-                db, data.raw_message, top_k=5, embedding_max_retries=2
+                db, data.raw_message, top_k=50 if data.custom_products else 5, embedding_max_retries=2
             )
         except Exception as e:
             logger.warning("Search failed, returning empty matches: %s", str(e)[:200])
@@ -164,12 +165,17 @@ async def analyze_and_match(
         seller_names: dict[int, str] = {}
         if seller_ids:
             try:
-                seller_rows = await db.execute(
-                    select(User.id, User.name, User.email, User.store_name).where(User.id.in_(seller_ids))
-                )
+                seller_query = select(User.id, User.name, User.email, User.store_name).where(User.id.in_(seller_ids))
+                if data.custom_products:
+                    seller_query = seller_query.where(User.is_active == True, User.role == "seller")
+                seller_rows = await db.execute(seller_query)
                 seller_names = {sid: (store_name or name or email) for sid, name, email, store_name in seller_rows.all()}
             except Exception:
                 logger.warning("Seller name query failed (non-critical)")
+
+        if data.custom_products:
+            match_results = select_supplier_matches(match_results, seller_names)
+            matched_ids = [mp["product_id"] for mp in match_results]
 
         # ── 5. Single short DB write transaction (INSERT inquiry + analysis, UPDATE view_count) ──
         try:

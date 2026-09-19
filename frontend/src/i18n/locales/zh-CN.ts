@@ -123,6 +123,13 @@ const zhCN = {
     noMatchAutoNotice: "所有匹配度均低于 10%，已自动生成无匹配回复。",
   },
   buyer: {
+    customProducts: "我们需要定制产品",
+    findSuppliers: "查找匹配商家",
+    supplierResults: "匹配商家",
+    customHint: "根据商家现有商品匹配，具体定制能力请与商家确认。",
+    relatedProduct: "相关商品",
+    customInquiry: "发送定制询盘",
+    noSupplierTitle: "暂无匹配商家",
     portalTitle: "买家中心",
     label: "您需要什么产品？",
     placeholder: "请详细描述您的产品需求，包括数量、规格、认证和交货地。",

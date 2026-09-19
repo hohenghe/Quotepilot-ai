@@ -124,6 +124,13 @@ const fr = {
     noMatchAutoNotice: "Toutes les correspondances sont inférieures à 10 %. Une réponse a été générée automatiquement.",
   },
   buyer: {
+    customProducts: "Nous avons besoin de produits personnalisés",
+    findSuppliers: "Rechercher des fournisseurs adaptés",
+    supplierResults: "Fournisseurs adaptés",
+    customHint: "Résultats basés sur le catalogue. Confirmez les capacités de personnalisation avec le fournisseur.",
+    relatedProduct: "Produit associé",
+    customInquiry: "Envoyer une demande de personnalisation",
+    noSupplierTitle: "Aucun fournisseur correspondant pour le moment",
     portalTitle: "Portail Acheteur",
     label: "Que recherchez-vous ?",
     placeholder: "Décrivez vos besoins en détail : quantité, spécifications, certifications et lieu de livraison.",

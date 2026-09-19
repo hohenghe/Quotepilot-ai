@@ -123,6 +123,13 @@ const zhTW = {
     noMatchAutoNotice: "所有配對度均低於 10%，已自動產生無配對回覆。",
   },
   buyer: {
+    customProducts: "我們需要訂製產品",
+    findSuppliers: "查找符合需求的商家",
+    supplierResults: "符合需求的商家",
+    customHint: "根據商家現有商品配對，具體訂製能力請與商家確認。",
+    relatedProduct: "相關商品",
+    customInquiry: "發送訂製詢盤",
+    noSupplierTitle: "暫無符合需求的商家",
     portalTitle: "買家中心",
     label: "您需要什麼產品？",
     placeholder: "請詳細描述您的產品需求，包括數量、規格、認證和交貨地點。",

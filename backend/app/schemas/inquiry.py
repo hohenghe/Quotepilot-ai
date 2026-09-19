@@ -4,6 +4,7 @@ from datetime import datetime
 
 
 class InquiryCreate(BaseModel):
+    custom_products: bool = False
     raw_message: str = Field(..., min_length=1, max_length=4000)
     customer_name: Optional[str] = None
     customer_email: Optional[str] = None

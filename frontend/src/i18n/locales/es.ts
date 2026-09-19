@@ -124,6 +124,13 @@ const es = {
     noMatchAutoNotice: "Todas las coincidencias están por debajo del 10%. Se ha generado automáticamente una respuesta.",
   },
   buyer: {
+    customProducts: "Necesitamos productos personalizados",
+    findSuppliers: "Buscar proveedores adecuados",
+    supplierResults: "Proveedores adecuados",
+    customHint: "Coincidencias basadas en el catálogo. Confirme las capacidades de personalización con el proveedor.",
+    relatedProduct: "Producto relacionado",
+    customInquiry: "Enviar consulta de personalización",
+    noSupplierTitle: "Aún no hay proveedores adecuados",
     portalTitle: "Portal del Comprador",
     label: "¿Qué necesita?",
     placeholder: "Describa sus requisitos en detalle, incluyendo cantidad, especificaciones, certificaciones y lugar de entrega.",

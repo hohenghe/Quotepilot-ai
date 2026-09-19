@@ -200,11 +200,13 @@ export interface FullAnalysisResult {
 export async function analyzeAndMatch(
   rawMessage: string,
   customerName?: string,
+  customProducts = false,
 ): Promise<FullAnalysisResult> {
   const data = await request<ApiInquiryAnalysisResult>("/api/inquiries/analyze", {
     method: "POST",
     body: JSON.stringify({
       raw_message: rawMessage,
+      custom_products: customProducts,
       customer_name: customerName || null,
       customer_email: null,
       customer_company: null,

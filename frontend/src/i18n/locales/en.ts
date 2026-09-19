@@ -124,6 +124,13 @@ const en = {
     noMatchAutoNotice: "All matches are below 10%. A no-match response has been automatically generated.",
   },
   buyer: {
+    customProducts: "We need custom products",
+    findSuppliers: "Find matching suppliers",
+    supplierResults: "Matching suppliers",
+    customHint: "Based on related catalog products. Confirm customization capabilities with the supplier.",
+    relatedProduct: "Related product",
+    customInquiry: "Send customization inquiry",
+    noSupplierTitle: "No matching suppliers yet",
     portalTitle: "Buyer Portal",
     label: "What are you looking for?",
     placeholder: "Describe your product requirements in detail, including quantity, specifications, certifications, and delivery location.",

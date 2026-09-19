@@ -28,6 +28,8 @@ export default function BuyerPage() {
   const [sendingId, setSendingId] = useState<number | null>(null)
   const inquiryOperation = useRef(false)
   const [analyzedMessage, setAnalyzedMessage] = useState("")
+  const [customProducts, setCustomProducts] = useState(false)
+  const [customResults, setCustomResults] = useState(false)
 
   const [active, setActive] = useState("discover")
   const [rawMessage, setRawMessage] = useState("")
@@ -127,7 +129,8 @@ export default function BuyerPage() {
     setResult(null)
     setAnalysisError(null)
     try {
-      const res = await analyzeAndMatch(message, user?.email || undefined)
+      const res = await analyzeAndMatch(message, user?.email || undefined, customProducts)
+      setCustomResults(customProducts)
       setAnalyzedMessage(message)
       setSentInquiries(new Set())
       setResult(res)
@@ -146,7 +149,8 @@ export default function BuyerPage() {
     inquiryOperation.current = true
     setSendingId(productId)
     try {
-      await sendInquiryToSeller(analyzedMessage, productId, user?.email || undefined)
+      const inquiryMessage = customResults ? `${t.buyer.customProducts}\n\n${analyzedMessage}` : analyzedMessage
+      await sendInquiryToSeller(inquiryMessage, productId, user?.email || undefined)
       setSentInquiries(prev => new Set(prev).add(productId))
       toast.push("success", t.buyer.inquirySent)
     } catch (e: any) {
@@ -323,6 +327,11 @@ export default function BuyerPage() {
                   value={rawMessage}
                   onChange={e => setRawMessage(e.target.value)}
                 />
+                <label className="mt-3 flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+                  <input type="checkbox" checked={customProducts} disabled={analyzing || sendingId !== null}
+                    onChange={e => setCustomProducts(e.target.checked)} className="h-4 w-4 accent-brand-600" />
+                  {t.buyer.customProducts}
+                </label>
                 <button
                   className="btn-primary w-full mt-4 py-2.5"
                   onClick={handleAnalyze}
@@ -331,7 +340,7 @@ export default function BuyerPage() {
                   {analyzing ? (
                     <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> {t.buyer.analyzing}</>
                   ) : (
-                    <><Sparkles className="w-4 h-4" /> {t.buyer.findProducts}</>
+                    <><Sparkles className="w-4 h-4" /> {customProducts ? t.buyer.findSuppliers : t.buyer.findProducts}</>
                   )}
                 </button>
                 {analysisError && (
@@ -355,7 +364,33 @@ export default function BuyerPage() {
             </div>
           </div>
 
-          {result && result.matchedProducts.length > 0 && (
+          {result && customResults && result.matchedProducts.length > 0 && (
+            <section className="mt-8" aria-live="polite">
+              <h2 className="text-lg font-semibold text-slate-900">{t.buyer.supplierResults} ({result.matchedProducts.length})</h2>
+              <p className="mt-1 text-sm text-slate-500">{t.buyer.customHint}</p>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+                {result.matchedProducts.map(mp => (
+                  <div key={mp.seller_id} className="card p-5 flex flex-col gap-3">
+                    <div className="flex items-start justify-between gap-3">
+                      <h3 className="font-medium text-slate-900 break-words">{mp.seller_name || t.buyer.seller}</h3>
+                      <span className="badge badge-success shrink-0">{t.buyer.matchLabel(Math.round(mp.match_score * 100))}</span>
+                    </div>
+                    <p className="text-sm text-slate-500">{t.buyer.relatedProduct}: {mp.product_name}</p>
+                    <button className="btn-secondary mt-auto" disabled={!mp.seller_id}
+                      onClick={() => { if (mp.seller_id) setSellerTarget({ id: mp.seller_id, name: mp.seller_name || t.buyer.seller }) }}>
+                      <Store className="w-4 h-4" />{t.buyer.supplier}
+                    </button>
+                    <button className="btn-primary" disabled={sentInquiries.has(mp.product_id) || sendingId !== null || analyzing}
+                      onClick={() => handleSendInquiry(mp.product_id)}>
+                      <Send className="w-4 h-4" />{sentInquiries.has(mp.product_id) ? t.buyer.inquirySent : t.buyer.customInquiry}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
+
+          {result && !customResults && result.matchedProducts.length > 0 && (
             <div className="mt-8">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-lg font-semibold text-slate-900">
@@ -443,7 +478,7 @@ export default function BuyerPage() {
             <div className="mt-8">
               <EmptyState
                 icon={<Package className="w-5 h-5" />}
-                title={t.buyer.noMatchTitle}
+                title={customResults ? t.buyer.noSupplierTitle : t.buyer.noMatchTitle}
                 description={t.buyer.noMatchHint}
                 action={
                   <button className="btn-secondary" onClick={() => textareaRef.current?.focus()}>

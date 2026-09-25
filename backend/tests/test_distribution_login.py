@@ -11,9 +11,36 @@ from fastapi import HTTPException
 from pydantic import ValidationError
 from app.api import auth, wechat
 from app.models.user import User
+from app.models.user_phone import UserPhone
+from app.models.seller_wechat_account import SellerWechatAccount
 
 
 class DistributionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_first_wechat_login_creates_phone_seller(self):
+        added = []
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
+            add=added.append, flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock(),
+        )
+        def add_user(obj):
+            added.append(obj)
+            if isinstance(obj, User): obj.id = 42
+        db.add = add_user
+        with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "new-openid"})), \
+             patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")), \
+             patch.object(wechat, "create_access_token", return_value="token"):
+            response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), db)
+        user = next(item for item in added if isinstance(item, User))
+        phone = next(item for item in added if isinstance(item, UserPhone))
+        binding = next(item for item in added if isinstance(item, SellerWechatAccount))
+        self.assertEqual(response.token, "token")
+        self.assertIsNone(user.email)
+        self.assertEqual(user.phone, "13800001234")
+        self.assertTrue(phone.is_primary)
+        self.assertTrue(phone.verified)
+        self.assertEqual(binding.openid, "new-openid")
+        db.commit.assert_awaited_once()
+
     async def test_email_registration(self):
         for role in ("seller", "buyer"):
             for value in (None, True, False):

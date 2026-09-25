@@ -141,6 +141,27 @@ def test_prompts():
     check("vision prompt: null when unconfirmed", "null" in vis.lower())
     check("vision prompt: preserve original language", "preserve the language" in vis.lower())
     check("vision prompt: no translation", "do not translate" in vis.lower())
+    check("vision prompt: object-only uses simplified Chinese", "Simplified Chinese" in vis)
+
+
+def test_language_fallback_prompt():
+    captured = []
+
+    async def fake_call_chat(messages, model, timeout, temperature, max_tokens, json_mode=False):
+        captured.append(messages)
+        return "{}", {}
+
+    vision._call_chat = fake_call_chat
+
+    async def run():
+        await vision._run_vision("data:image/jpeg;base64,AA==", "包装文字 ABC")
+        await vision._run_vision("data:image/jpeg;base64,AA==", "   ")
+
+    asyncio.run(run())
+    text_with_ocr = captured[0][1]["content"][0]["text"]
+    text_without_ocr = captured[1][1]["content"][0]["text"]
+    check("vision user prompt: preserves source language with OCR", "Preserve the original language" in text_with_ocr)
+    check("vision user prompt: object-only defaults to simplified Chinese", "Simplified Chinese" in text_without_ocr)
 
 
 def test_sanitize_extra():
@@ -241,6 +262,7 @@ if __name__ == "__main__":
     test_sanitize_extra()
     test_parse()
     test_prompts()
+    test_language_fallback_prompt()
     test_preprocess()
     test_preprocess_extra()
     test_pipeline()

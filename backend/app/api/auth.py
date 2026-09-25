@@ -30,7 +30,7 @@ RESEND_COOLDOWN = timedelta(seconds=60)
 
 class RegisterRequest(BaseModel):
     supports_distribution: StrictBool | None = None
-    email: str
+    email: str | None = None
     password: str
     name: str | None = None
     store_name: str | None = None
@@ -85,7 +85,7 @@ class AuthResponse(BaseModel):
     supports_distribution: bool | None = None
     token: str
     user_id: int
-    email: str
+    email: str | None
     role: str
     name: str | None = None
     store_name: str | None = None
@@ -171,14 +171,16 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if data.role == "seller" and (not data.name or not data.name.strip()):
         raise HTTPException(status_code=400, detail="Company name is required for sellers")
 
-    existing = await db.execute(
-        select(User).where(User.email == data.email, User.role == data.role)
-    )
-    if existing.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="An account with this role already exists for this email")
+    email = data.email.strip() if data.email else None
+    if email:
+        existing = await db.execute(
+            select(User).where(User.email == email, User.role == data.role)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="An account with this role already exists for this email")
 
     user = User(
-        email=data.email.strip(),
+        email=email,
         password_hash=hash_password(data.password),
         role=data.role,
         supports_distribution=data.supports_distribution if data.role == "seller" else None,
@@ -187,7 +189,7 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
         country=data.country,
         phone=data.phone.strip(),
         uid=generate_uid(),
-        email_verified_at=None,
+        email_verified_at=None if email else _now(),
     )
     db.add(user)
     await db.commit()
@@ -195,6 +197,9 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
     # Create verification token and send the email. On failure, keep the account
     # (so the user can resend) but return a clear error.
+    if not user.email:
+        return {"success": True, "message": "Registration successful. You can now sign in with your phone number."}
+
     token = await _create_token(db, user.id, "email_verification")
     await db.commit()
 

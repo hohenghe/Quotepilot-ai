@@ -19,6 +19,7 @@ from app.core.security import (
 from app.models.user import User
 from app.models.auth_token import AuthToken
 from app.models.seller_wechat_account import SellerWechatAccount
+from app.models.user_phone import UserPhone
 from app.services.wechat import code_to_session, get_phone_number, WechatLoginError
 from app.services.email import send_verification_email
 
@@ -42,7 +43,7 @@ class WechatRegisterRequest(BaseModel):
     supports_distribution: StrictBool
     code: str
     phone_code: str
-    email: str
+    email: str | None = None
     password: str
     name: str | None = None
     country: str
@@ -89,7 +90,7 @@ def _auth_payload(user: User) -> dict:
 async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_db)):
     try:
         session = await code_to_session(data.code)
-        await get_phone_number(data.phone_code)
+        phone = await get_phone_number(data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
@@ -103,7 +104,32 @@ async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_
     )
     account = result.scalar_one_or_none()
     if not account:
-        return WechatAuthResponse(bound=False)
+        # A WeChat-authorized phone is the seller's verified primary identifier.
+        # Create its seller account in one transaction so the first quick login
+        # reaches the dashboard without an email-registration detour.
+        user = User(
+            email=None,
+            password_hash=None,
+            role="seller",
+            supports_distribution=None,
+            name=f"商家 {phone[-4:]}" if len(phone) >= 4 else "商家",
+            store_name=None,
+            country="CN",
+            phone=phone,
+            uid=generate_uid(),
+            email_verified_at=datetime.now(timezone.utc),
+        )
+        db.add(user)
+        try:
+            await db.flush()
+            db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True))
+            db.add(SellerWechatAccount(user_id=user.id, openid=openid, unionid=session.get("unionid")))
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(status_code=409, detail="This phone number or WeChat account is already in use")
+        await db.refresh(user)
+        return WechatAuthResponse(**_auth_payload(user))
 
     user = await db.get(User, account.user_id)
     if not user or not user.is_active:
@@ -111,7 +137,7 @@ async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_
     if getattr(user, "restricted_port", None) not in (None, "seller"):
         raise HTTPException(status_code=403, detail="Account cannot sign in to the seller portal")
 
-    if user.role != "admin" and user.email_verified_at is None:
+    if user.role != "admin" and user.email and user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
 
     return WechatAuthResponse(**_auth_payload(user))
@@ -142,14 +168,16 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
     if existing_bind.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="This WeChat account is already bound to a seller")
 
-    existing_user = await db.execute(
-        select(User).where(User.email == data.email.strip(), User.role == "seller")
-    )
-    if existing_user.scalar_one_or_none():
-        raise HTTPException(status_code=400, detail="An account with this role already exists for this email")
+    email = data.email.strip() if data.email else None
+    if email:
+        existing_user = await db.execute(
+            select(User).where(User.email == email, User.role == "seller")
+        )
+        if existing_user.scalar_one_or_none():
+            raise HTTPException(status_code=400, detail="An account with this role already exists for this email")
 
     user = User(
-        email=data.email.strip(),
+        email=email,
         password_hash=hash_password(data.password),
         role="seller",
         supports_distribution=data.supports_distribution,
@@ -158,10 +186,11 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
         country=data.country,
         phone=phone,
         uid=generate_uid(),
-        email_verified_at=None,
+        email_verified_at=None if email else datetime.now(timezone.utc),
     )
     db.add(user)
     await db.flush()
+    db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True))
     db.add(SellerWechatAccount(user_id=user.id, openid=openid, unionid=unionid))
     try:
         await db.commit()
@@ -170,6 +199,9 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
         raise HTTPException(status_code=409, detail="This WeChat account is already bound to a seller")
 
     await db.refresh(user)
+
+    if not user.email:
+        return {"success": True, "message": "Registration successful. You can now sign in with WeChat."}
 
     raw = generate_token()
     db.add(AuthToken(

@@ -1,5 +1,5 @@
 from pydantic_settings import BaseSettings
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 _DEV_JWT_SECRET = "quotepilot-dev-secret-change-in-production"
@@ -64,6 +64,14 @@ class Settings(BaseSettings):
     # payload to the vision/OCR API at the cost of small-character sharpness.
     # 90 is the measured sweet spot (~29% payload cut, negligible text loss).
     PREPROCESS_JPEG_QUALITY: int = 90
+    # Image decode/downscale/re-encode is CPU-bound.  Limit it independently
+    # from request concurrency so bursts of photo recognition cannot consume
+    # every API CPU core.  It runs in a dedicated thread pool.
+    IMAGE_PREPROCESS_MAX_WORKERS: int = Field(default=2, ge=1, le=8)
+    # Optional path to the Rust native image helper.  Leave empty to use the
+    # Pillow implementation; a failed native invocation always falls back.
+    NATIVE_IMAGE_PREPROCESSOR_PATH: str = ""
+    NATIVE_IMAGE_PREPROCESS_TIMEOUT: int = Field(default=15, ge=1, le=60)
 
     # Dev default is a known constant; production MUST override via env.
     # The @model_validator below fails the boot if ENV=production and the

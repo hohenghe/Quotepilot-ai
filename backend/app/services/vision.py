@@ -7,11 +7,15 @@ Pipeline:
 This module never touches the database and never returns provider secrets.
 """
 import base64
+import asyncio
 import io
 import json
 import logging
 import re
+import subprocess
 import time
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from typing import Any
 
 import httpx
@@ -19,6 +23,59 @@ import httpx
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
+
+# Pillow's decode/resize/encode work is CPU-bound.  Running it inline in an
+# async endpoint blocks every request on this Uvicorn worker; a bounded,
+# dedicated pool lets network-bound OCR/vision calls continue while avoiding a
+# burst of photo uploads consuming unbounded CPU.
+_IMAGE_PREPROCESS_EXECUTOR = ThreadPoolExecutor(
+    max_workers=settings.IMAGE_PREPROCESS_MAX_WORKERS,
+    thread_name_prefix="image-preprocess",
+)
+
+
+def _try_native_preprocess(
+    image_bytes: bytes,
+    max_dimension: int,
+    quality: int,
+) -> tuple[bytes, str, tuple[int, int]] | None:
+    """Run the optional Rust helper, returning None to preserve Pillow fallback."""
+    executable = settings.NATIVE_IMAGE_PREPROCESSOR_PATH.strip()
+    if not executable:
+        return None
+
+    try:
+        completed = subprocess.run(
+            [
+                executable,
+                "--max-dimension", str(max_dimension),
+                "--quality", str(quality),
+            ],
+            input=image_bytes,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=settings.NATIVE_IMAGE_PREPROCESS_TIMEOUT,
+            check=False,
+        )
+        if completed.returncode != 0 or not completed.stdout:
+            logger.warning(
+                "native image preprocessing failed (exit=%s, detail=%s); using Pillow",
+                completed.returncode,
+                completed.stderr.decode("utf-8", errors="replace")[:200],
+            )
+            return None
+
+        from PIL import Image
+
+        with Image.open(io.BytesIO(completed.stdout)) as processed:
+            size = processed.size
+        if not size[0] or not size[1] or max(size) > max_dimension:
+            logger.warning("native image preprocessing returned invalid dimensions; using Pillow")
+            return None
+        return completed.stdout, "image/jpeg", size
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        logger.warning("native image preprocessing unavailable (%s); using Pillow", type(exc).__name__)
+        return None
 
 ALLOWED_CATEGORIES = {
     "led_lighting", "electronics", "machinery", "textiles",
@@ -223,23 +280,31 @@ def sanitize_recognition(parsed: Any) -> dict[str, Any]:
 
 # ── Image preprocessing ─────────────────────────────────────────────────────
 
-def preprocess_image(
+def _preprocess(
     image_bytes: bytes,
     mime_type: str,
     max_dimension: int,
-) -> tuple[bytes, str]:
-    """EXIF-orient, optionally downscale large images, re-encode to high-quality JPEG.
+    quality: int,
+) -> tuple[bytes, str, dict]:
+    """EXIF-orient, optionally downscale large images, re-encode to JPEG.
 
-    Accuracy-first:
+    Returns (out_bytes, out_mime, meta) where meta carries original/processed
+    dimensions, sizes and transform flags for telemetry. Accuracy-first:
     - Never upscale.
-    - Skip re-encoding entirely when no transform is needed (no EXIF orientation,
-      no downscale, already a display-friendly mode). This preserves the text
-      edges of lossless sources (PNG spec sheets / screenshots) that a JPEG
+    - Pass through the original bytes verbatim when no transform is needed (no
+      EXIF orientation, no downscale, already an RGB/L mode). This preserves the
+      text edges of lossless sources (PNG spec sheets / screenshots) that a JPEG
       re-encode would blur.
-    - When a transform is needed, re-encode JPEG at quality 95 to limit edge
-      artifacting around small characters.
+    - When a transform is needed, re-encode JPEG at `quality` to trade payload
+      size for small-character sharpness (configurable via settings).
     - On any error, the original bytes are returned unchanged.
     """
+    ob = len(image_bytes)
+    meta: dict[str, Any] = {
+        "original_width": 0, "original_height": 0, "original_bytes": ob,
+        "megapixels": 0.0, "was_resized": False, "was_reencoded": False,
+        "processed_width": 0, "processed_height": 0, "processed_bytes": ob,
+    }
     try:
         from PIL import Image, ImageOps
 
@@ -253,29 +318,78 @@ def preprocess_image(
 
         w, h = img.size
         needs_resize = bool(max_dimension) and max(w, h) > max_dimension
+        meta.update(original_width=w, original_height=h,
+                    megapixels=round((w * h) / 1_000_000, 2),
+                    processed_width=w, processed_height=h, processed_bytes=ob)
 
         # Pass-through: nothing to fix and already a safe mode -> keep original
         # bytes verbatim (no lossy re-encode, no extra work).
         if not has_orientation and not needs_resize and img.mode in ("RGB", "L"):
-            return image_bytes, mime_type
+            return image_bytes, mime_type, meta
+
+        native_result = _try_native_preprocess(
+            image_bytes, max_dimension, quality,
+        )
+        if native_result:
+            out, out_mime, out_size = native_result
+            meta.update(
+                was_resized=needs_resize,
+                was_reencoded=True,
+                processed_width=out_size[0],
+                processed_height=out_size[1],
+                processed_bytes=len(out),
+            )
+            return out, out_mime, meta
+
+        if needs_resize and img.format == "JPEG":
+            # JPEG decoders can discard DCT blocks while decoding.  For large
+            # camera photos this avoids materializing the full-resolution
+            # bitmap before the final resize; PNG/WebP do not offer an
+            # equivalent safe decoder hint, so they follow the normal path.
+            scale = max_dimension / max(w, h)
+            img.draft(
+                "RGB",
+                (max(1, int(w * scale)), max(1, int(h * scale))),
+            )
 
         img = ImageOps.exif_transpose(img)
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
 
         if needs_resize:
-            ratio = max_dimension / max(w, h)
-            img = img.resize(
-                (max(1, int(w * ratio)), max(1, int(h * ratio))),
+            # thumbnail() uses Pillow's integer pre-reduction before its final
+            # LANCZOS pass.  It produces the same bounded aspect-preserving
+            # result as resize(), but avoids applying expensive LANCZOS over
+            # every source pixel for very large camera images.
+            img.thumbnail(
+                (max_dimension, max_dimension),
                 Image.LANCZOS,
+                reducing_gap=3.0,
             )
+            meta["was_resized"] = True
 
         buf = io.BytesIO()
-        img.save(buf, format="JPEG", quality=95)
-        return buf.getvalue(), "image/jpeg"
+        img.save(buf, format="JPEG", quality=quality)
+        out = buf.getvalue()
+        meta["was_reencoded"] = True
+        meta["processed_width"], meta["processed_height"] = img.size
+        meta["processed_bytes"] = len(out)
+        return out, "image/jpeg", meta
     except Exception as e:
         logger.warning("image preprocessing failed (%s), using original", type(e).__name__)
-        return image_bytes, mime_type
+        return image_bytes, mime_type, meta
+
+
+def preprocess_image(
+    image_bytes: bytes,
+    mime_type: str,
+    max_dimension: int,
+) -> tuple[bytes, str]:
+    """Benchmark-compatible wrapper: EXIF/downscale/re-encode using configured JPEG quality."""
+    out, mime, _ = _preprocess(
+        image_bytes, mime_type, max_dimension, settings.PREPROCESS_JPEG_QUALITY
+    )
+    return out, mime
 
 
 # ── Provider calls ──────────────────────────────────────────────────────────
@@ -375,12 +489,21 @@ async def recognize_product_image(image_bytes: bytes, mime_type: str) -> dict[st
     start = time.perf_counter()
 
     t0 = time.perf_counter()
-    processed_bytes, processed_mime = preprocess_image(
-        image_bytes, mime_type, settings.AI_MAX_IMAGE_DIMENSION
+    processed_bytes, processed_mime, pmeta = await asyncio.get_running_loop().run_in_executor(
+        _IMAGE_PREPROCESS_EXECUTOR,
+        partial(
+            _preprocess,
+            image_bytes,
+            mime_type,
+            settings.AI_MAX_IMAGE_DIMENSION,
+            settings.PREPROCESS_JPEG_QUALITY,
+        ),
     )
     preprocess_ms = int((time.perf_counter() - t0) * 1000)
 
+    t0 = time.perf_counter()
     b64 = base64.b64encode(processed_bytes).decode("ascii")
+    base64_ms = int((time.perf_counter() - t0) * 1000)
     data_url = f"data:{processed_mime};base64,{b64}"
 
     t0 = time.perf_counter()
@@ -393,12 +516,20 @@ async def recognize_product_image(image_bytes: bytes, mime_type: str) -> dict[st
 
     total_ms = int((time.perf_counter() - start) * 1000)
 
+    ob = pmeta["original_bytes"]
+    pb = pmeta["processed_bytes"]
+    compression_ratio = round(pb / ob, 3) if ob else 0.0
     logger.info(
-        "[PRODUCT_AI] preprocess_ms=%s ocr_ms=%s vision_ms=%s total_ms=%s "
-        "img_kb=%s img_mime=%s ocr_model=%s vision_model=%s "
-        "ocr_in=%s ocr_out=%s vision_in=%s vision_out=%s",
-        preprocess_ms, ocr_ms, vision_ms, total_ms,
-        round(len(processed_bytes) / 1024), processed_mime, ocr_model, vision_model,
+        "[PRODUCT_AI] original_width=%s original_height=%s original_bytes=%s "
+        "processed_width=%s processed_height=%s processed_bytes=%s "
+        "compression_ratio=%s image_megapixels=%s was_resized=%s was_reencoded=%s "
+        "preprocess_ms=%s base64_ms=%s ocr_ms=%s vision_ms=%s total_ms=%s "
+        "ocr_model=%s vision_model=%s ocr_in=%s ocr_out=%s vision_in=%s vision_out=%s",
+        pmeta["original_width"], pmeta["original_height"], ob,
+        pmeta["processed_width"], pmeta["processed_height"], pb,
+        compression_ratio, pmeta["megapixels"], pmeta["was_resized"], pmeta["was_reencoded"],
+        preprocess_ms, base64_ms, ocr_ms, vision_ms, total_ms,
+        ocr_model, vision_model,
         ocr_usage.get("prompt_tokens", 0), ocr_usage.get("completion_tokens", 0),
         vision_usage.get("prompt_tokens", 0), vision_usage.get("completion_tokens", 0),
     )

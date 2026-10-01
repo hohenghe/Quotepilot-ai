@@ -227,6 +227,35 @@ def test_preprocess_extra():
     check("large: downscaled within limit", max(bimg.size) <= 3072, str(bimg.size))
     check("large: jpeg out", bmime == "image/jpeg")
 
+    # Large JPEG uses decoder-time downsampling before the final resize.  The
+    # output must still use the requested aspect-preserving target dimensions.
+    large_jpeg = Image.new("RGB", (8000, 6000), (80, 130, 210))
+    ljbuf = BytesIO()
+    large_jpeg.save(ljbuf, format="JPEG", quality=92)
+    ljout, ljmime = preprocess_image(ljbuf.getvalue(), "image/jpeg", 3072)
+    ljimg = Image.open(BytesIO(ljout))
+    check("large jpeg: output is jpeg", ljmime == "image/jpeg")
+    check("large jpeg: target dimensions", ljimg.size == (3072, 2304), str(ljimg.size))
+
+
+def test_native_preprocess_fallback():
+    """An unavailable optional helper must never break recognition."""
+    from io import BytesIO
+    from PIL import Image
+    from app.core.config import settings
+
+    original_path = settings.NATIVE_IMAGE_PREPROCESSOR_PATH
+    try:
+        settings.NATIVE_IMAGE_PREPROCESSOR_PATH = "definitely-not-an-executable"
+        image = Image.new("RGB", (3000, 2000), (20, 40, 60))
+        buf = BytesIO()
+        image.save(buf, format="JPEG")
+        output, mime = preprocess_image(buf.getvalue(), "image/jpeg", 1024)
+        decoded = Image.open(BytesIO(output))
+        check("native fallback: Pillow result returned", mime == "image/jpeg" and max(decoded.size) <= 1024)
+    finally:
+        settings.NATIVE_IMAGE_PREPROCESSOR_PATH = original_path
+
 
 def test_pipeline_malformed():
     from app.core.config import settings
@@ -265,6 +294,7 @@ if __name__ == "__main__":
     test_language_fallback_prompt()
     test_preprocess()
     test_preprocess_extra()
+    test_native_preprocess_fallback()
     test_pipeline()
     test_pipeline_malformed()
     passed = sum(1 for _, ok in results if ok)

@@ -1,0 +1,8 @@
+[package]
+name = "quotepilot-image-preprocessor"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+# Keep codecs explicit: the production API accepts JPEG, PNG, and WebP.
+image = { version = "0.25.8", default-features = false, features = ["jpeg", "png", "webp"] }

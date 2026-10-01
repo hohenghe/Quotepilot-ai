@@ -367,6 +367,19 @@ async def init_db():
             ("CREATE INDEX IF NOT EXISTS ix_products_active_created ON products (is_active, created_at DESC)", "active_created"),
             ("CREATE INDEX IF NOT EXISTS ix_products_category ON products (category)", "category"),
             ("CREATE INDEX IF NOT EXISTS ix_products_active_embed_status ON products (is_active, embedding_status)", "active_embed_status"),
+            # The inquiry matcher orders eligible products by cosine distance.
+            # A plain B-tree cannot accelerate that ORDER BY, so without this
+            # pgvector HNSW index PostgreSQL performs a CPU-heavy scan and sort
+            # of every completed embedding for each inquiry.  Keep its partial
+            # predicate identical to the search query in services/rag.py so the
+            # planner can use it without indexing inactive/pending products.
+            (
+                "CREATE INDEX IF NOT EXISTS ix_products_embedding_hnsw_cosine "
+                "ON products USING hnsw (embedding vector_cosine_ops) "
+                "WITH (m = 16, ef_construction = 64) "
+                "WHERE is_active = true AND embedding_status = 'completed'",
+                "embedding_hnsw_cosine",
+            ),
         ]:
             try:
                 await conn.execute(text(stmt))

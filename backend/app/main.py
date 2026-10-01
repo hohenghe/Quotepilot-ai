@@ -176,6 +176,14 @@ async def _close_ai_client():
         logger.exception("Failed to close AI client on shutdown")
 
 
+async def _close_wechat_client():
+    try:
+        from app.services.wechat import close_wechat_client
+        await close_wechat_client()
+    except Exception:
+        logger.exception("Failed to close WeChat HTTP client on shutdown")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global _worker_task
@@ -200,6 +208,7 @@ async def lifespan(app: FastAPI):
         except asyncio.CancelledError:
             pass
     await _close_ai_client()
+    await _close_wechat_client()
 
 
 async def _ensure_admin():

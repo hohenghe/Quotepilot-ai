@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timedelta, timezone
 import logging
 
@@ -86,11 +87,19 @@ def _auth_payload(user: User) -> dict:
     }
 
 
+async def _resolve_wechat_credentials(code: str, phone_code: str) -> tuple[dict, str]:
+    """Fetch independent WeChat credentials concurrently to reduce login TTFB."""
+    session, phone = await asyncio.gather(
+        code_to_session(code),
+        get_phone_number(phone_code),
+    )
+    return session, phone
+
+
 @router.post("/wechat-login", response_model=WechatAuthResponse)
 async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_db)):
     try:
-        session = await code_to_session(data.code)
-        phone = await get_phone_number(data.phone_code)
+        session, phone = await _resolve_wechat_credentials(data.code, data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
@@ -146,8 +155,7 @@ async def wechat_login(data: WechatLoginRequest, db: AsyncSession = Depends(get_
 @router.post("/wechat-register")
 async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depends(get_db)):
     try:
-        session = await code_to_session(data.code)
-        phone = await get_phone_number(data.phone_code)
+        session, phone = await _resolve_wechat_credentials(data.code, data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
@@ -229,8 +237,7 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
 @router.post("/wechat-bind", response_model=WechatAuthResponse)
 async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db)):
     try:
-        session = await code_to_session(data.code)
-        await get_phone_number(data.phone_code)
+        session, _ = await _resolve_wechat_credentials(data.code, data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")

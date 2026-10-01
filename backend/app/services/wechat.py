@@ -11,28 +11,54 @@ PHONE_NUMBER_URL = "https://api.weixin.qq.com/wxa/business/getuserphonenumber"
 _access_token: str | None = None
 _access_token_expires_at = 0.0
 _access_token_lock = asyncio.Lock()
+_http_client: httpx.AsyncClient | None = None
+_http_client_lock = asyncio.Lock()
 
 
 class WechatLoginError(Exception):
     pass
 
 
+async def _get_http_client() -> httpx.AsyncClient:
+    """Return a process-wide client so WeChat connections can be kept alive."""
+    global _http_client
+    if _http_client is not None:
+        return _http_client
+
+    async with _http_client_lock:
+        if _http_client is None:
+            _http_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(10.0, connect=5.0),
+                limits=httpx.Limits(max_connections=20, max_keepalive_connections=10),
+            )
+    return _http_client
+
+
+async def close_wechat_client() -> None:
+    """Close the shared client during application shutdown."""
+    global _http_client
+    async with _http_client_lock:
+        client, _http_client = _http_client, None
+    if client is not None:
+        await client.aclose()
+
+
 async def code_to_session(code: str) -> dict:
     if not settings.WECHAT_APPID or not settings.WECHAT_APP_SECRET:
         raise WechatLoginError("WeChat AppID/Secret is not configured")
 
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.get(
-            CODE2SESSION_URL,
-            params={
-                "appid": settings.WECHAT_APPID,
-                "secret": settings.WECHAT_APP_SECRET,
-                "js_code": code,
-                "grant_type": "authorization_code",
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    client = await _get_http_client()
+    resp = await client.get(
+        CODE2SESSION_URL,
+        params={
+            "appid": settings.WECHAT_APPID,
+            "secret": settings.WECHAT_APP_SECRET,
+            "js_code": code,
+            "grant_type": "authorization_code",
+        },
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
     if "openid" not in data:
         raise WechatLoginError(data.get("errmsg") or "jscode2session failed")
@@ -52,17 +78,17 @@ async def _get_access_token() -> str:
         if not settings.WECHAT_APPID or not settings.WECHAT_APP_SECRET:
             raise WechatLoginError("WeChat AppID/Secret is not configured")
 
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(
-                ACCESS_TOKEN_URL,
-                params={
-                    "grant_type": "client_credential",
-                    "appid": settings.WECHAT_APPID,
-                    "secret": settings.WECHAT_APP_SECRET,
-                },
-            )
-            resp.raise_for_status()
-            data = resp.json()
+        client = await _get_http_client()
+        resp = await client.get(
+            ACCESS_TOKEN_URL,
+            params={
+                "grant_type": "client_credential",
+                "appid": settings.WECHAT_APPID,
+                "secret": settings.WECHAT_APP_SECRET,
+            },
+        )
+        resp.raise_for_status()
+        data = resp.json()
 
         token = data.get("access_token")
         if not token:
@@ -78,14 +104,14 @@ async def get_phone_number(phone_code: str) -> str:
         raise WechatLoginError("WeChat phone authorization was not granted")
 
     token = await _get_access_token()
-    async with httpx.AsyncClient(timeout=10.0) as client:
-        resp = await client.post(
-            PHONE_NUMBER_URL,
-            params={"access_token": token},
-            json={"code": phone_code},
-        )
-        resp.raise_for_status()
-        data = resp.json()
+    client = await _get_http_client()
+    resp = await client.post(
+        PHONE_NUMBER_URL,
+        params={"access_token": token},
+        json={"code": phone_code},
+    )
+    resp.raise_for_status()
+    data = resp.json()
 
     phone = (data.get("phone_info") or {}).get("purePhoneNumber")
     if not phone:

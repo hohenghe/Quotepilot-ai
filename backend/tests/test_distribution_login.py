@@ -1,5 +1,7 @@
 """Offline registration preference and legacy-login regression tests."""
 import sys
+import asyncio
+import time
 import unittest
 from pathlib import Path
 from datetime import datetime, timezone
@@ -16,6 +18,25 @@ from app.models.seller_wechat_account import SellerWechatAccount
 
 
 class DistributionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_wechat_credential_exchange_runs_in_parallel(self):
+        async def delayed_session(_code):
+            await asyncio.sleep(0.05)
+            return {"openid": "parallel-openid"}
+
+        async def delayed_phone(_phone_code):
+            await asyncio.sleep(0.05)
+            return "13800001234"
+
+        with patch.object(wechat, "code_to_session", delayed_session), \
+             patch.object(wechat, "get_phone_number", delayed_phone):
+            started_at = time.perf_counter()
+            session, phone = await wechat._resolve_wechat_credentials("c", "p")
+            elapsed = time.perf_counter() - started_at
+
+        self.assertEqual(session["openid"], "parallel-openid")
+        self.assertEqual(phone, "13800001234")
+        self.assertLess(elapsed, 0.09)
+
     async def test_first_wechat_login_creates_phone_seller(self):
         added = []
         db = SimpleNamespace(

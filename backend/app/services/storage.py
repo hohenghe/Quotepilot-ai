@@ -1,231 +1,158 @@
-"""
-Storage abstraction layer.
+"""One lazy R2 client for product documents and uploaded media."""
 
-Local development (and the current Railway deployment) default to LocalStorage.
-R2Storage can be enabled by setting STORAGE_BACKEND=r2 together with the R2_*
-settings. Business code only talks to the StorageService interface and never
-depends on the concrete backend.
-"""
 import asyncio
-import os
+import re
+import threading
 import uuid
+from urllib.parse import urlsplit
+
+from botocore.exceptions import ClientError
 
 from app.core.config import settings
 
 
-def _safe_filename(filename: str) -> str:
-    name = (filename or "").replace("\\", "/").split("/")[-1]
-    return name.strip() or "upload"
+MEDIA_KIND_PREFIX = {
+    "review": "reviews", "product": "products",
+    "avatar": "avatars", "license": "licenses",
+}
+_MEDIA_NAME = re.compile(r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\.(?:jpg|png|webp|gif)$")
+_DOCUMENT_MIME = {
+    ".pdf": "application/pdf",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".csv": "text/csv",
+}
 
 
-def _generate_key(filename: str) -> str:
-    return f"{uuid.uuid4().hex[:12]}_{_safe_filename(filename)}"
+class R2ConfigurationError(RuntimeError):
+    """A required R2 setting is missing or invalid."""
 
 
-class StorageService:
-    async def save(self, filename: str, content: bytes) -> str:
-        raise NotImplementedError
-
-    async def read(self, key: str) -> bytes:
-        raise NotImplementedError
-
-    async def delete(self, key: str) -> None:
-        raise NotImplementedError
-
-    async def exists(self, key: str) -> bool:
-        raise NotImplementedError
-
-
-class LocalStorage(StorageService):
-    """Writes files to a local directory (default: <backend>/uploads)."""
-
-    def __init__(self, base_dir: str):
-        self.base_dir = base_dir
-        os.makedirs(self.base_dir, exist_ok=True)
-
-    async def save(self, filename: str, content: bytes) -> str:
-        key = _generate_key(filename)
-        path = os.path.join(self.base_dir, key)
-        with open(path, "wb") as f:
-            f.write(content)
-        return path
-
-    async def read(self, key: str) -> bytes:
-        with open(key, "rb") as f:
-            return f.read()
-
-    async def delete(self, key: str) -> None:
-        try:
-            os.remove(key)
-        except FileNotFoundError:
-            pass
-
-    async def exists(self, key: str) -> bool:
-        return os.path.isfile(key)
+def validate_r2_config() -> None:
+    """Validate locally at startup or use; never contact R2 during import."""
+    required = ("R2_ENDPOINT", "R2_ACCESS_KEY_ID", "R2_SECRET_ACCESS_KEY", "R2_BUCKET")
+    missing = [name for name in required if not getattr(settings, name).strip()]
+    if missing:
+        raise R2ConfigurationError("Missing R2 configuration: " + ", ".join(missing))
+    endpoint = urlsplit(settings.R2_ENDPOINT)
+    if endpoint.scheme != "https" or not endpoint.hostname or endpoint.username or endpoint.password or endpoint.query or endpoint.fragment or endpoint.path not in ("", "/"):
+        raise R2ConfigurationError("R2_ENDPOINT must be an HTTPS S3 API endpoint")
+    if not settings.R2_REGION.strip():
+        raise R2ConfigurationError("R2_REGION must not be empty")
 
 
-class R2Storage(StorageService):
-    """Stores objects in a Cloudflare R2 bucket via its S3-compatible API."""
+def media_key(kind: str, extension: str) -> str:
+    if kind not in MEDIA_KIND_PREFIX:
+        raise ValueError("Unsupported upload kind")
+    if extension not in {".jpg", ".png", ".webp", ".gif"}:
+        raise ValueError("Unsupported image type")
+    return f"{MEDIA_KIND_PREFIX[kind]}/{uuid.uuid4()}{extension}"
 
-    def __init__(
-        self,
-        bucket: str,
-        prefix: str = "",
-        account_id: str = "",
-        access_key_id: str = "",
-        secret_access_key: str = "",
-        endpoint_url: str = "",
-    ):
-        self.bucket = bucket
-        self.prefix = (prefix or "").strip("/")
-        self._account_id = account_id
-        self._access_key_id = access_key_id
-        self._secret_access_key = secret_access_key
-        self._endpoint_url = endpoint_url
+
+def is_media_key(key: str, kind: str) -> bool:
+    prefix = MEDIA_KIND_PREFIX.get(kind)
+    return bool(prefix and key.startswith(prefix + "/") and _MEDIA_NAME.fullmatch(key[len(prefix) + 1:]))
+
+
+def document_key(filename: str) -> str:
+    extension = "." + filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
+    if extension not in _DOCUMENT_MIME:
+        raise ValueError("Unsupported document type")
+    return f"documents/{uuid.uuid4()}{extension}"
+
+
+class R2Storage:
+    """S3 compatible storage; boto3 work runs outside the event loop."""
+
+    def __init__(self):
         self._client = None
+        self._client_lock = threading.Lock()
 
     def _get_client(self):
+        validate_r2_config()
         if self._client is None:
-            try:
-                import boto3
-            except ImportError as e:
-                raise RuntimeError(
-                    "R2Storage requires the 'boto3' package. Install it with `pip install boto3`."
-                ) from e
-
-            endpoint = self._endpoint_url or (
-                f"https://{self._account_id}.r2.cloudflarestorage.com"
-                if self._account_id
-                else ""
-            )
-            kwargs = {
-                "endpoint_url": endpoint or None,
-                "aws_access_key_id": self._access_key_id or None,
-                "aws_secret_access_key": self._secret_access_key or None,
-                "region_name": "auto",
-            }
-            self._client = boto3.client(
-                "s3", **{k: v for k, v in kwargs.items() if v is not None}
-            )
+            with self._client_lock:
+                if self._client is None:
+                    import boto3
+                    self._client = boto3.client(
+                        "s3", endpoint_url=settings.R2_ENDPOINT,
+                        aws_access_key_id=settings.R2_ACCESS_KEY_ID,
+                        aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY,
+                        region_name=settings.R2_REGION,
+                    )
         return self._client
 
-    def _object_key(self, key: str) -> str:
-        return f"{self.prefix}/{key}" if self.prefix else key
-
-    async def save(self, filename: str, content: bytes) -> str:
-        key = _generate_key(filename)
-        obj_key = self._object_key(key)
+    async def upload(self, key: str, content: bytes, content_type: str) -> str:
         client = await asyncio.to_thread(self._get_client)
         await asyncio.to_thread(
-            client.put_object, Bucket=self.bucket, Key=obj_key, Body=content
+            client.put_object, Bucket=settings.R2_BUCKET, Key=key,
+            Body=content, ContentType=content_type,
         )
-        return obj_key
+        return key
+
+    async def save(self, filename: str, content: bytes) -> str:
+        key = document_key(filename)
+        extension = "." + filename.rsplit(".", 1)[-1].lower()
+        return await self.upload(key, content, _DOCUMENT_MIME[extension])
 
     async def read(self, key: str) -> bytes:
         client = await asyncio.to_thread(self._get_client)
-        obj = await asyncio.to_thread(
-            client.get_object, Bucket=self.bucket, Key=key
-        )
-        return obj["Body"].read()
+
+        def fetch():
+            response = client.get_object(Bucket=settings.R2_BUCKET, Key=key)
+            with response["Body"] as body:
+                return body.read()
+
+        return await asyncio.to_thread(fetch)
 
     async def delete(self, key: str) -> None:
         client = await asyncio.to_thread(self._get_client)
-        await asyncio.to_thread(
-            client.delete_object, Bucket=self.bucket, Key=key
-        )
+        await asyncio.to_thread(client.delete_object, Bucket=settings.R2_BUCKET, Key=key)
 
     async def exists(self, key: str) -> bool:
         client = await asyncio.to_thread(self._get_client)
         try:
-            await asyncio.to_thread(client.head_object, Bucket=self.bucket, Key=key)
+            await asyncio.to_thread(client.head_object, Bucket=settings.R2_BUCKET, Key=key)
             return True
-        except Exception as e:
-            response = getattr(e, "response", None) or {}
-            error = response.get("Error", {}) if isinstance(response, dict) else {}
-            if error.get("Code") in ("404", "NoSuchKey"):
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code")
+            if code in ("404", "NoSuchKey", "NotFound"):
                 return False
             raise
 
-
-_storage: StorageService | None = None
-
-
-def _resolve_local_dir() -> str:
-    if settings.STORAGE_LOCAL_DIR:
-        return settings.STORAGE_LOCAL_DIR
-    return os.path.join(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-        "uploads",
-    )
-
-
-def _build_storage() -> StorageService:
-    backend = (settings.STORAGE_BACKEND or "local").strip().lower()
-    if backend == "r2":
-        return R2Storage(
-            bucket=settings.R2_BUCKET_NAME,
-            prefix=settings.R2_STORAGE_PREFIX,
-            account_id=settings.R2_ACCOUNT_ID,
-            access_key_id=settings.R2_ACCESS_KEY_ID,
-            secret_access_key=settings.R2_SECRET_ACCESS_KEY,
-            endpoint_url=settings.R2_ENDPOINT_URL,
+    async def generate_presigned_get_url(self, key: str, expires_in: int = 3600) -> str:
+        client = await asyncio.to_thread(self._get_client)
+        return await asyncio.to_thread(
+            client.generate_presigned_url, "get_object",
+            Params={"Bucket": settings.R2_BUCKET, "Key": key}, ExpiresIn=expires_in,
         )
-    return LocalStorage(base_dir=_resolve_local_dir())
 
 
-def get_storage() -> StorageService:
-    global _storage
-    if _storage is None:
-        _storage = _build_storage()
+_storage = R2Storage()
+
+
+def get_storage() -> R2Storage:
     return _storage
 
 
-# ── R2 public object storage (media files: reviews, product-images, ...) ──
-
-_r2_client = None
-
-
-def _get_r2_client():
-    global _r2_client
-    if _r2_client is None:
-        import boto3
-        endpoint = settings.R2_ENDPOINT_URL or (
-            f"https://{settings.R2_ACCOUNT_ID}.r2.cloudflarestorage.com"
-            if settings.R2_ACCOUNT_ID
-            else ""
-        )
-        _r2_client = boto3.client(
-            "s3",
-            endpoint_url=endpoint or None,
-            aws_access_key_id=settings.R2_ACCESS_KEY_ID or None,
-            aws_secret_access_key=settings.R2_SECRET_ACCESS_KEY or None,
-            region_name="auto",
-        )
-    return _r2_client
+def validate_media_reference(value: str | None, kind: str, *, base_url: str, existing: str | None = None) -> str | None:
+    """Accept a backend object URL or an unchanged legacy value."""
+    if value is None:
+        return None
+    value = value.strip()
+    if not value:
+        raise ValueError("Image URL cannot be empty")
+    if value == existing:
+        return value
+    prefix = f"{base_url.rstrip('/')}/api/files/objects/{kind}/"
+    if not value.startswith(prefix):
+        raise ValueError("Image must be uploaded through /api/files/upload")
+    name = value[len(prefix):]
+    if not is_media_key(f"{MEDIA_KIND_PREFIX[kind]}/{name}", kind):
+        raise ValueError("Invalid image reference")
+    return value
 
 
-def get_public_url(object_key: str) -> str:
-    base = (settings.R2_PUBLIC_BASE_URL or "").rstrip("/")
-    key = object_key.lstrip("/")
-    return f"{base}/{key}" if base else key
-
-
-async def upload_file(object_key: str, content: bytes, content_type: str) -> str:
-    client = await asyncio.to_thread(_get_r2_client)
-    await asyncio.to_thread(
-        client.put_object,
-        Bucket=settings.R2_BUCKET_NAME,
-        Key=object_key,
-        Body=content,
-        ContentType=content_type,
-    )
-    return get_public_url(object_key)
-
-
-async def delete_file(object_key: str) -> None:
-    client = await asyncio.to_thread(_get_r2_client)
-    await asyncio.to_thread(
-        client.delete_object,
-        Bucket=settings.R2_BUCKET_NAME,
-        Key=object_key,
-    )
+def validate_media_references(values: list[str], kind: str, *, base_url: str, existing: list[str] | None = None) -> list[str]:
+    old = set(existing or [])
+    return [validate_media_reference(value, kind, base_url=base_url, existing=value if value in old else None) for value in values]

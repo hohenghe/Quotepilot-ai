@@ -1,6 +1,6 @@
 from datetime import datetime, timedelta, timezone
 import logging
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, update, func
 from pydantic import BaseModel, StrictBool
@@ -18,6 +18,7 @@ from app.models.user import User
 from app.models.auth_token import AuthToken
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.wechat import get_phone_number, WechatLoginError
+from app.api.media import require_media_url
 
 logger = logging.getLogger(__name__)
 
@@ -438,6 +439,7 @@ async def me(user: User = Depends(require_auth)):
 @router.put("/me", response_model=AuthResponse)
 async def update_me(
     data: UpdateProfileRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_auth),
 ):
@@ -446,9 +448,15 @@ async def update_me(
     if data.store_name is not None:
         user.store_name = data.store_name.strip() or None
     if data.avatar_url is not None:
-        user.avatar_url = data.avatar_url.strip() or None
+        user.avatar_url = (
+            require_media_url(data.avatar_url, "avatar", request=request, existing=user.avatar_url)
+            if data.avatar_url.strip() else None
+        )
     if data.business_license_url is not None:
-        user.business_license_url = data.business_license_url.strip() or None
+        user.business_license_url = (
+            require_media_url(data.business_license_url, "license", request=request, existing=user.business_license_url)
+            if data.business_license_url.strip() else None
+        )
     # Phone numbers are managed via /api/auth/phones. `users.phone` is kept as a
     # legacy primary mirror and must not be overwritten through this endpoint.
     # The `phone` field remains in the request schema for backward compatibility

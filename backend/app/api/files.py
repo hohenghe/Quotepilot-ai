@@ -1,12 +1,18 @@
 import logging
 import os
 import re
-import uuid
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from fastapi.responses import FileResponse
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Request
+from fastapi.responses import FileResponse, RedirectResponse
 from app.core.auth import require_auth
 from app.models.user import User
-from app.services.storage import upload_file as upload_to_r2
+from app.api.media import media_url
+from app.services.storage import (
+    MEDIA_KIND_PREFIX,
+    R2ConfigurationError,
+    get_storage,
+    is_media_key,
+    media_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -15,7 +21,6 @@ router = APIRouter(prefix="/api/files", tags=["files"])
 # Legacy local-disk images (served only for backward compatibility).
 _BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 IMAGES_DIR = os.path.join(_BASE_DIR, "uploads", "images")
-os.makedirs(IMAGES_DIR, exist_ok=True)
 
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp", "image/gif"}
 ALLOWED_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp"}
@@ -45,27 +50,25 @@ _IMAGE_MAGIC = {
 
 
 def _verify_image_magic(content: bytes, content_type: str) -> bool:
+    if content_type == "image/webp":
+        return content[:4] == b"RIFF" and content[8:12] == b"WEBP"
     sigs = _IMAGE_MAGIC.get(content_type)
     if sigs is None:
         return False
     return content.startswith(sigs)
 
 # Object-key prefix per upload kind (client cannot control the key).
-KIND_PREFIX = {
-    "review": "reviews",
-    "product": "products",
-    "avatar": "avatars",
-    "license": "licenses",
-}
+KIND_PREFIX = MEDIA_KIND_PREFIX
 
 
 @router.post("/upload")
 async def upload_image(
+    request: Request,
     file: UploadFile = File(...),
     kind: str = Form("review"),
     _: User = Depends(require_auth),
 ):
-    content = await file.read()
+    content = await file.read(MAX_SIZE + 1)
     if len(content) > MAX_SIZE:
         raise HTTPException(status_code=400, detail="Image too large (max 5MB)")
 
@@ -83,18 +86,38 @@ async def upload_image(
     if not _verify_image_magic(content, content_type):
         raise HTTPException(status_code=400, detail="File content does not match the declared image type")
 
-    prefix = KIND_PREFIX.get(kind)
-    if prefix is None:
+    if kind not in KIND_PREFIX:
         raise HTTPException(status_code=400, detail="Unsupported upload kind")
 
-    object_key = f"{prefix}/{uuid.uuid4()}{ext}"
+    object_key = media_key(kind, ext)
     try:
-        url = await upload_to_r2(object_key, content, content_type)
+        await get_storage().upload(object_key, content, content_type)
+    except R2ConfigurationError:
+        logger.error("R2 media upload is not configured")
+        raise HTTPException(status_code=503, detail="Image storage is not configured")
     except Exception as e:
         logger.error("R2 upload failed: %s", type(e).__name__)
         raise HTTPException(status_code=502, detail="File upload failed")
 
-    return {"url": url}
+    # Stable backend URL: the frontend keeps its existing `url` contract, while
+    # the bucket stays private and no expiring signature is stored in the DB.
+    return {"url": media_url(request, kind, object_key.rsplit("/", 1)[1])}
+
+
+@router.get("/objects/{kind}/{name}", name="get_r2_media")
+async def get_r2_media(kind: str, name: str):
+    key = f"{MEDIA_KIND_PREFIX.get(kind, '')}/{name}"
+    if not is_media_key(key, kind):
+        raise HTTPException(status_code=404, detail="Not found")
+    try:
+        url = await get_storage().generate_presigned_get_url(key)
+    except R2ConfigurationError:
+        logger.error("R2 media access is not configured")
+        raise HTTPException(status_code=503, detail="Image storage is not configured")
+    except Exception as exc:
+        logger.error("R2 media access failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="File access failed")
+    return RedirectResponse(url, status_code=302, headers={"Cache-Control": "private, no-store"})
 
 
 @router.get("/images/{name}")

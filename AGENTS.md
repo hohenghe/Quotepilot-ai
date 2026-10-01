@@ -17,7 +17,7 @@ AI 驱动的国际贸易销售助手。三端分离（买家/卖家/管理端）
 | AI (Embedding) | DashScope Qwen `text-embedding-v4`（1024 维） |
 | 邮件 | Brevo Transactional Email API |
 | 文件存储 | Cloudflare R2（评论/商品图/头像/营业执照） |
-| 部署 | 前端 Vercel + 后端 Railway |
+| 部署 | 前端 Vercel + 后端 Northflank |
 
 ---
 
@@ -75,7 +75,7 @@ F:\QuotePilot AI\
 │   │   ├── schemas/                    # inquiry, product, quote
 │   │   └── services/                   # llm, embedding, rag, file_parser, rating, storage, email
 │   ├── seed_admin.py                   # 自动创建管理员 + 测试账号
-│   ├── Procfile                        # Railway 启动：uvicorn app.main:app
+│   ├── Procfile                        # 后端启动：uvicorn app.main:app
 │   ├── .python-version                 # Python 3.12
 │   └── init-db.sql                     # 建表 SQL
 ├── SESSION_LOG.md                      # 会话工作记录
@@ -175,7 +175,7 @@ require_auth / require_buyer / require_seller / require_admin 依赖注入
 
 ## 环境变量
 
-**后端（Railway）**
+**后端（Northflank）**
 ```
 DATABASE_URL=postgresql+asyncpg://...
 OPENAI_API_KEY          # LLM（DeepSeek V4 Flash）
@@ -192,7 +192,7 @@ JWT_SECRET_KEY
 BREVO_API_KEY           # 邮件
 MAIL_FROM_EMAIL / MAIL_FROM_NAME
 FRONTEND_URL            # 邮件链接回跳，如 https://zhermai.com
-R2_ACCOUNT_ID / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET_NAME / R2_PUBLIC_BASE_URL
+R2_ENDPOINT / R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_BUCKET / R2_REGION
 ```
 
 **前端（Vercel）**
@@ -215,7 +215,7 @@ cd backend
 pip install -r requirements.txt
 uvicorn app.main:app --reload
 
-# 部署：git push 后 Vercel + Railway 自动部署
+# 部署：git push 后由 Vercel + Northflank 部署
 ```
 
 ---
@@ -246,6 +246,6 @@ uvicorn app.main:app --reload
 
 - `frontend/src/lib/ai/`、`lib/api.ts`、`lib/supabase.ts`、`lib/store.ts` 为旧浏览器端 AI/存储逻辑，新流程已走后端，属遗留代码，未清理。
 - 旧 `(dashboard)` 路由组页面保留，但非主要入口。
-- 历史评论图片仍在 `backend/uploads/images/`（Railway 本地磁盘），需迁移到 R2（部署会丢本地文件）。
-- R2 公开访问需确认 `img.zhermai.com` 能公开读取对象。
+- 历史评论图片仍可能引用 `backend/uploads/images/` 本地路径，保留只读兼容路由；迁移到 R2 需另行安排（Northflank 容器磁盘不作为持久存储）。
+- 历史 `img.zhermai.com` URL 的访问情况需核实；新上传图片由后端签名 GET，无需 R2 公开访问。
 - 未来 100k+ 商品需加 pgvector HNSW/IVFFlat 索引 + 独立任务队列（Celery/Redis）。

@@ -1,6 +1,6 @@
 import os
 import logging
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
 from sqlalchemy.orm import defer
@@ -14,7 +14,8 @@ from app.models.user import User
 from app.models.saved_product import SavedProduct
 from app.schemas.product import ProductCreate, ProductUpdate, ProductResponse, ProductListResponse, DocumentResponse
 from app.services.file_parser import parse_file
-from app.services.storage import get_storage
+from app.services.storage import R2ConfigurationError, get_storage
+from app.api.media import require_media_url, require_media_urls
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/products", tags=["products"])
@@ -118,6 +119,7 @@ async def list_products(
 @router.post("", response_model=ProductResponse)
 async def create_product(
     data: ProductCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_seller),
 ):
@@ -125,6 +127,8 @@ async def create_product(
     images = data.images or []
     if len(images) > 10:
         raise HTTPException(status_code=400, detail="A product can have at most 10 images")
+    images = require_media_urls(images, "product", request=request)
+    image_url = require_media_url(data.image_url, "product", request=request)
 
     product = Product(
         name=data.name,
@@ -139,7 +143,7 @@ async def create_product(
         price_range_high=data.price_range_high,
         pricing=data.pricing,
         lead_time_days=data.lead_time_days,
-        image_url=data.image_url,
+        image_url=image_url,
         images=images,
         seller_id=user.id,
     )
@@ -177,7 +181,14 @@ async def upload_product_file(
     content = await _read_with_size_limit(file, MAX_UPLOAD_SIZE)
     _validate_magic(ext, content)
 
-    storage_key = await get_storage().save(file.filename or "", content)
+    try:
+        storage_key = await get_storage().save(file.filename or "", content)
+    except R2ConfigurationError:
+        logger.error("R2 document upload is not configured")
+        raise HTTPException(status_code=503, detail="File storage is not configured")
+    except Exception as exc:
+        logger.error("R2 document upload failed: %s", type(exc).__name__)
+        raise HTTPException(status_code=502, detail="File upload failed")
 
     doc = Document(
         filename=file.filename,
@@ -226,7 +237,7 @@ async def upload_product_file(
 
 @router.put("/{product_id}", response_model=ProductResponse)
 async def update_product(
-    product_id: int, data: ProductUpdate, db: AsyncSession = Depends(get_db),
+    product_id: int, data: ProductUpdate, request: Request, db: AsyncSession = Depends(get_db),
     user: User = Depends(require_seller),
 ):
     result = await db.execute(
@@ -239,6 +250,14 @@ async def update_product(
     update_data = data.model_dump(exclude_unset=True)
     if "images" in update_data and len(update_data["images"] or []) > 10:
         raise HTTPException(status_code=400, detail="A product can have at most 10 images")
+    if "images" in update_data and update_data["images"] is not None:
+        update_data["images"] = require_media_urls(
+            update_data["images"], "product", request=request, existing=product.images or [],
+        )
+    if "image_url" in update_data:
+        update_data["image_url"] = require_media_url(
+            update_data["image_url"], "product", request=request, existing=product.image_url,
+        )
     for key, value in update_data.items():
         setattr(product, key, value)
 

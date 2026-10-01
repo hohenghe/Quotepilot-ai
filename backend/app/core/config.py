@@ -104,20 +104,13 @@ class Settings(BaseSettings):
     ANALYZE_USER_RATE: int = 30     # logged-in: 30 req/min/user
     ANALYZE_MAX_CONCURRENCY: int = 8  # global in-flight cap for /analyze
 
-    # File storage backend: "local" (default) or "r2"
-    STORAGE_BACKEND: str = "local"
-    # Optional override for the local upload directory (defaults to <backend>/uploads)
-    STORAGE_LOCAL_DIR: str = ""
-
-    # Cloudflare R2 (S3-compatible) settings.
-    R2_ACCOUNT_ID: str = ""
+    # Cloudflare R2 S3 API. Validated when the application starts in production
+    # and at first storage operation in development.
+    R2_ENDPOINT: str = ""
     R2_ACCESS_KEY_ID: str = ""
     R2_SECRET_ACCESS_KEY: str = ""
-    R2_BUCKET_NAME: str = ""
-    R2_PUBLIC_BASE_URL: str = ""
-    # Optional overrides (endpoint is normally derived from R2_ACCOUNT_ID)
-    R2_ENDPOINT_URL: str = ""
-    R2_STORAGE_PREFIX: str = "documents"
+    R2_BUCKET: str = ""
+    R2_REGION: str = "auto"
 
     class Config:
         env_file = ".env"

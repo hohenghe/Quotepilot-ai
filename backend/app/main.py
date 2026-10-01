@@ -10,6 +10,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.core.config import get_cors_origins, is_production
+from app.services.storage import validate_r2_config
 from app.core.database import init_db
 from app.core.auth import require_admin
 from app.models.user import User
@@ -188,6 +189,8 @@ async def _close_wechat_client():
 async def lifespan(app: FastAPI):
     global _worker_task
     global _cleanup_task
+    if is_production():
+        validate_r2_config()
     await initialize_database_with_retry()
     await _reset_stuck_embeddings()
     await _ensure_admin()

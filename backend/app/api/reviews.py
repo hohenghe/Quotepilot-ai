@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
@@ -8,6 +8,7 @@ from app.core.auth import require_auth, require_buyer, require_seller, require_a
 from app.models.review import Review
 from app.models.user import User
 from app.services.rating import compute_seller_score
+from app.api.media import require_media_urls
 
 router = APIRouter(prefix="/api/reviews", tags=["reviews"])
 
@@ -36,6 +37,7 @@ def _serialize(review: Review, user_name: str | None, user_email: str | None) ->
 @router.post("")
 async def create_review(
     data: CreateReviewRequest,
+    request: Request,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_buyer),
 ):
@@ -50,11 +52,12 @@ async def create_review(
     existing = (await db.execute(
         select(Review).where(Review.seller_id == data.seller_id, Review.user_id == user.id)
     )).scalar_one_or_none()
+    images = require_media_urls(data.images, "review", request=request, existing=existing.images if existing else None)
 
     if existing:
         existing.rating = rating
         existing.content = (data.content or "").strip() or None
-        existing.images = data.images
+        existing.images = images
         existing.reported = False
         await db.commit()
         await db.refresh(existing)
@@ -65,7 +68,7 @@ async def create_review(
         user_id=user.id,
         rating=rating,
         content=(data.content or "").strip() or None,
-        images=data.images,
+        images=images,
     )
     db.add(review)
     await db.commit()

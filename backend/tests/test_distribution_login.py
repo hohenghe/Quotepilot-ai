@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException, Response
 from pydantic import ValidationError
 from app.api import auth, wechat
 from app.models.user import User
@@ -18,6 +18,98 @@ from app.models.seller_wechat_account import SellerWechatAccount
 
 
 class DistributionTests(unittest.IsolatedAsyncioTestCase):
+    async def test_prepared_wechat_session_skips_code_exchange_at_login(self):
+        user = SimpleNamespace(
+            id=7, role="seller", is_active=True, email=None, email_verified_at=None,
+            auth_version=0, supports_distribution=None, name="shop", store_name=None,
+            avatar_url=None, business_license_url=None, country="CN", phone="13800001234", uid="uid",
+            restricted_port=None,
+        )
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(
+                scalar_one_or_none=lambda: SimpleNamespace(user_id=7))),
+            get=AsyncMock(return_value=user),
+        )
+        with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "prepared"})) as exchange, \
+             patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")) as phone, \
+             patch.object(wechat, "create_access_token", return_value="token"):
+            tasks = BackgroundTasks()
+            prepared = await wechat.prepare_wechat_session(wechat.WechatSessionRequest(code="one-time-code"), tasks, db)
+            self.assertEqual(prepared["expires_in"], 120)
+            self.assertEqual(prepared["auth_result"]["token"], "token")
+            exchange.assert_awaited_once()
+            self.assertEqual(len(tasks.tasks), 0)
+            response_headers = Response()
+            result = await wechat.wechat_login(
+                wechat.WechatLoginRequest(session_token=prepared["session_token"], phone_code="phone-code"),
+                response_headers,
+                db,
+            )
+            exchange.assert_awaited_once()
+            phone.assert_not_awaited()
+        self.assertEqual(result.token, "token")
+        self.assertIn("wechat_session;dur=", response_headers.headers["Server-Timing"])
+
+    async def test_wechat_session_rejects_wrong_purpose_before_phone_exchange(self):
+        ordinary_access_token = wechat.create_access_token(1, "seller")
+        with patch.object(wechat, "get_phone_number", AsyncMock()) as phone:
+            with self.assertRaises(HTTPException) as error:
+                await wechat.wechat_login(
+                    wechat.WechatLoginRequest(session_token=ordinary_access_token, phone_code="p"),
+                    Response(),
+                    SimpleNamespace(),
+                )
+        self.assertEqual(error.exception.status_code, 400)
+        phone.assert_not_awaited()
+
+    async def test_unbound_preparation_warms_token_and_still_requires_verified_phone(self):
+        added = []
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: None)),
+            flush=AsyncMock(), commit=AsyncMock(), refresh=AsyncMock(),
+        )
+        def add_item(item):
+            added.append(item)
+            if isinstance(item, User):
+                item.id = 43
+        db.add = add_item
+        with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "new"})) as exchange, \
+             patch.object(wechat, "warm_phone_access_token", AsyncMock()) as warm, \
+             patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")) as phone, \
+             patch.object(wechat, "create_access_token", return_value="token"):
+            tasks = BackgroundTasks()
+            prepared = await wechat.prepare_wechat_session(wechat.WechatSessionRequest(code="c"), tasks, db)
+            self.assertIsNone(prepared["auth_result"])
+            await tasks()
+            warm.assert_awaited_once()
+            result = await wechat.wechat_login(
+                wechat.WechatLoginRequest(session_token=prepared["session_token"], phone_code="p"),
+                Response(), db,
+            )
+            exchange.assert_awaited_once()
+            phone.assert_awaited_once_with("p")
+        self.assertEqual(result.token, "token")
+        self.assertTrue(any(isinstance(item, UserPhone) and item.verified for item in added))
+
+    async def test_legacy_bound_login_does_not_exchange_phone(self):
+        user = SimpleNamespace(
+            id=8, role="seller", is_active=True, email=None, email_verified_at=None,
+            auth_version=0, supports_distribution=None, name="shop", store_name=None,
+            avatar_url=None, business_license_url=None, country="CN", phone="13800001234", uid="uid",
+            restricted_port=None,
+        )
+        db = SimpleNamespace(
+            execute=AsyncMock(return_value=SimpleNamespace(
+                scalar_one_or_none=lambda: SimpleNamespace(user_id=8))),
+            get=AsyncMock(return_value=user),
+        )
+        with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "bound"})), \
+             patch.object(wechat, "get_phone_number", AsyncMock()) as phone, \
+             patch.object(wechat, "create_access_token", return_value="token"):
+            result = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), Response(), db)
+        self.assertEqual(result.token, "token")
+        phone.assert_not_awaited()
+
     async def test_wechat_credential_exchange_runs_in_parallel(self):
         async def delayed_session(_code):
             await asyncio.sleep(0.05)
@@ -50,7 +142,7 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "new-openid"})), \
              patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")), \
              patch.object(wechat, "create_access_token", return_value="token"):
-            response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), db)
+            response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), Response(), db)
         user = next(item for item in added if isinstance(item, User))
         phone = next(item for item in added if isinstance(item, UserPhone))
         binding = next(item for item in added if isinstance(item, SellerWechatAccount))
@@ -106,7 +198,7 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
             db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(user_id=1)))
             db.get = AsyncMock(return_value=seller)
             with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "test"})), patch.object(wechat, "get_phone_number", AsyncMock(return_value="123")), patch.object(wechat, "create_access_token", return_value="token"):
-                response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), db)
+                response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), Response(), db)
             self.assertIs(response.supports_distribution, value)
             db.commit.assert_not_awaited()
 

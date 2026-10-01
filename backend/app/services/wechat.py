@@ -98,6 +98,11 @@ async def _get_access_token() -> str:
         return _access_token
 
 
+async def warm_phone_access_token() -> None:
+    """Move the access-token refresh off the phone authorization path."""
+    await _get_access_token()
+
+
 async def get_phone_number(phone_code: str) -> str:
     """Verify user-approved phone authorization and return its mobile number."""
     if not phone_code:

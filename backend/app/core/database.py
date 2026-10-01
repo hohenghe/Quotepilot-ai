@@ -410,8 +410,8 @@ async def init_db():
 
 async def _migrate_embedding_dimension(conn):
     """Ensure products.embedding column matches settings.EMBEDDING_DIM.
-    Existing embeddings (if any) are NULL-safe since generation never succeeded,
-    so we drop + recreate with the correct dimension and reset status to pending."""
+    Only a real dimension change requires dropping existing vectors and
+    re-embedding active products."""
     try:
         result = await conn.execute(text(
             "SELECT data_type, udt_name FROM information_schema.columns "
@@ -421,16 +421,15 @@ async def _migrate_embedding_dimension(conn):
         if not row:
             return
 
-        # Check if column dimension matches settings.EMBEDDING_DIM
-        # pgvector stores dimension in information_schema or atttypmod
+        # pgvector's vector(n) stores n directly in atttypmod (unlike some
+        # PostgreSQL types whose typmod includes a 4-byte header).
         dim_result = await conn.execute(text(
             "SELECT atttypmod FROM pg_attribute "
             "WHERE attrelid = 'products'::regclass AND attname = 'embedding'"
         ))
         dim_row = dim_result.first()
-        # atttypmod for vector(n) is n + 4 (pgvector stores dim + 4 in atttypmod)
         if dim_row and dim_row[0] is not None:
-            actual_dim = dim_row[0] - 4
+            actual_dim = dim_row[0]
             if actual_dim != settings.EMBEDDING_DIM:
                 logger.warning(
                     "Embedding dimension mismatch: DB=%s config=%s, migrating...",

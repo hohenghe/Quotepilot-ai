@@ -8,8 +8,8 @@ class UserPhone(Base):
 
     `is_primary` marks the single primary phone (mirrored into users.phone for
     legacy compatibility). Additional phones can be bound/unbound; primary
-    phones cannot be removed. `verified` reflects SMS OTP verification (not yet
-    implemented — see app/services for the future OTP step).
+    phones cannot be removed. `verified` may reflect WeChat phone authorization;
+    SMS OTP verification is not yet implemented.
     """
 
     __tablename__ = "user_phones"

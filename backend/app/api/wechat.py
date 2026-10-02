@@ -6,7 +6,7 @@ import time
 import jwt
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
-from sqlalchemy import select, or_
+from sqlalchemy import select, or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, StrictBool
@@ -102,6 +102,7 @@ class WechatAuthResponse(BaseModel):
     country: str | None = None
     phone: str | None = None
     uid: str | None = None
+    phone_binding_warning: str | None = None
 
 
 def _auth_payload(user: User) -> dict:
@@ -136,11 +137,11 @@ async def _set_wechat_primary_phone(db: AsyncSession, user: User, phone: str) ->
     await db.execute(select(User.id).where(User.id == user.id).with_for_update())
     conflict = await db.execute(select(User.id).where(User.phone == phone, User.id != user.id).limit(1))
     if conflict.scalar_one_or_none() is not None:
-        raise HTTPException(status_code=409, detail="This phone number is already in use")
+        raise HTTPException(status_code=409, detail="该手机号已属于其他账号，请核对账号归属")
     result = await db.execute(select(UserPhone).where(UserPhone.phone == phone, UserPhone.deleted_at.is_(None)))
     target = result.scalar_one_or_none()
     if target and target.user_id != user.id:
-        raise HTTPException(status_code=409, detail="This phone number is already in use")
+        raise HTTPException(status_code=409, detail="该手机号已属于其他账号，请核对账号归属")
     records = (await db.execute(select(UserPhone).where(
         UserPhone.user_id == user.id, UserPhone.deleted_at.is_(None)
     ))).scalars().all()
@@ -159,6 +160,19 @@ async def _set_wechat_primary_phone(db: AsyncSession, user: User, phone: str) ->
     user.phone = phone
 
 
+async def _phone_owners(db: AsyncSession, phone: str) -> list[User]:
+    """Find owners in both the legacy mirror and active phone records."""
+    result = await db.execute(
+        select(User).where(or_(
+            User.phone == phone,
+            User.id.in_(select(UserPhone.user_id).where(
+                UserPhone.phone == phone, UserPhone.deleted_at.is_(None)
+            )),
+        ))
+    )
+    return list(result.scalars().unique().all())
+
+
 @router.post("/wechat-session")
 async def prepare_wechat_session(data: WechatSessionRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """Prepare WeChat identity and any existing seller login before a tap."""
@@ -171,18 +185,18 @@ async def prepare_wechat_session(data: WechatSessionRequest, background_tasks: B
         select(SellerWechatAccount).where(SellerWechatAccount.openid == session["openid"])
     )
     account = result.scalar_one_or_none()
-    auth_result = None
+    bound = False
     if account:
         user = await db.get(User, account.user_id)
         if user and user.is_active and getattr(user, "restricted_port", None) in (None, "seller"):
             if user.role == "admin" or not user.email or user.email_verified_at is not None:
-                auth_result = _auth_payload(user)
+                bound = True
     else:
         background_tasks.add_task(_warm_phone_token_safely)
     return {
         "session_token": _create_wechat_session_token(session),
         "expires_in": _WECHAT_SESSION_LIFETIME_SECONDS,
-        "auth_result": auth_result,
+        "bound": bound,
     }
 
 
@@ -230,6 +244,37 @@ async def wechat_login(data: WechatLoginRequest, response: Response, db: AsyncSe
             logger.warning("WeChat phone exchange failed")
             raise HTTPException(status_code=502, detail="WeChat login failed")
         phone_ms = (time.perf_counter() - started) * 1000 - session_ms - lookup_ms
+
+        owners = await _phone_owners(db, phone)
+        if len(owners) > 1:
+            raise HTTPException(status_code=409, detail="该手机号关联多个账号，请使用账号密码登录并联系客服处理")
+        if owners:
+            user = owners[0]
+            if not user.is_active or user.role != "seller" or getattr(user, "restricted_port", None) not in (None, "seller"):
+                raise HTTPException(status_code=409, detail="该手机号已关联其他端账号，请使用对应入口登录")
+            existing = (await db.execute(select(SellerWechatAccount).where(
+                SellerWechatAccount.user_id == user.id
+            ))).scalar_one_or_none()
+            if user.password_hash is not None:
+                if existing is not None:
+                    raise HTTPException(status_code=409, detail="该手机号已有账号且绑定了其他微信，请使用账号密码登录")
+                raise HTTPException(status_code=409, detail="该手机号已有卖家账号，请使用账号密码登录并绑定微信")
+            if user.email and user.email_verified_at is None:
+                raise HTTPException(status_code=403, detail="请先验证账号邮箱")
+            # Phone-only WeChat accounts have no password recovery path. A new
+            # openid may reuse them after a fresh official phone authorization.
+            if existing is None:
+                raise HTTPException(status_code=409, detail="该手机号对应的账号尚未绑定微信，请联系客服核实账号归属")
+            try:
+                await _set_wechat_primary_phone(db, user, phone)
+                existing.openid = openid
+                existing.unionid = session.get("unionid")
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="微信账号或手机号绑定冲突，请稍后重试")
+            await db.refresh(user)
+            return WechatAuthResponse(**_auth_payload(user))
         # A WeChat-authorized phone is the seller's verified primary identifier.
         # Create its seller account in one transaction so the first quick login
         # reaches the dashboard without an email-registration detour.
@@ -275,12 +320,25 @@ async def wechat_login(data: WechatLoginRequest, response: Response, db: AsyncSe
     except Exception:
         logger.warning("WeChat phone exchange failed")
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
+    owners = await _phone_owners(db, phone)
+    other_owners = [owner for owner in owners if owner.id != user.id]
+    if other_owners:
+        # Keep the already-bound WeChat account accessible without moving a
+        # phone number or signing in to another user's account implicitly.
+        payload = _auth_payload(user)
+        payload["phone_binding_warning"] = (
+            "微信登录成功，但授权手机号已属于其他账号，主手机号未更改。"
+            + ("请用该手机号所属账号的密码登录，或联系管理员处理账号归属。"
+               if len(other_owners) == 1 and other_owners[0].password_hash
+               else "请核对当前微信与手机号对应的账号，或联系管理员处理账号归属。")
+        )
+        return WechatAuthResponse(**payload)
     try:
         await _set_wechat_primary_phone(db, user, phone)
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status_code=409, detail="This phone number is already in use")
+        raise HTTPException(status_code=409, detail="手机号绑定冲突，请稍后重试")
     await db.refresh(user)
 
     response.headers["Server-Timing"] = (
@@ -388,7 +446,7 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
         select(User).where(
             User.is_active == True,
             or_(
-                User.email == data.identifier,
+                func.lower(User.email) == data.identifier.lower(),
                 User.phone == data.identifier,
                 User.uid == data.identifier,
             ),
@@ -400,6 +458,9 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
 
     if user is None:
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    if getattr(user, "restricted_port", None) not in (None, "seller"):
+        raise HTTPException(status_code=403, detail="账号不能绑定卖家端微信")
 
     if user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before binding.")
@@ -415,7 +476,7 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
                 await db.commit()
             except IntegrityError:
                 await db.rollback()
-                raise HTTPException(status_code=409, detail="This phone number is already in use")
+                raise HTTPException(status_code=409, detail="该手机号已属于其他账号，请使用对应账号登录")
             return WechatAuthResponse(**_auth_payload(user))
         raise HTTPException(status_code=409, detail="This WeChat account is already bound to another seller")
 
@@ -423,7 +484,7 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
         select(SellerWechatAccount).where(SellerWechatAccount.user_id == user.id)
     )
     if bound_user.scalar_one_or_none():
-        raise HTTPException(status_code=409, detail="This seller account is already bound to a WeChat account")
+        raise HTTPException(status_code=409, detail="该卖家账号已绑定其他微信，请直接使用账号密码登录")
 
     db.add(SellerWechatAccount(user_id=user.id, openid=openid, unionid=unionid))
     try:
@@ -431,6 +492,6 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
         await db.commit()
     except IntegrityError:
         await db.rollback()
-        raise HTTPException(status_code=409, detail="This phone number or WeChat account is already in use")
+        raise HTTPException(status_code=409, detail="手机号或微信账号已被占用，请检查账号归属")
 
     return WechatAuthResponse(**_auth_payload(user))

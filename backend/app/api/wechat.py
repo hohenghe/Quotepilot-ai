@@ -131,6 +131,34 @@ async def _resolve_wechat_credentials(code: str, phone_code: str) -> tuple[dict,
     return session, phone
 
 
+async def _set_wechat_primary_phone(db: AsyncSession, user: User, phone: str) -> None:
+    """Promote the officially authorized number; retain the old primary as additional."""
+    await db.execute(select(User.id).where(User.id == user.id).with_for_update())
+    conflict = await db.execute(select(User.id).where(User.phone == phone, User.id != user.id).limit(1))
+    if conflict.scalar_one_or_none() is not None:
+        raise HTTPException(status_code=409, detail="This phone number is already in use")
+    result = await db.execute(select(UserPhone).where(UserPhone.phone == phone, UserPhone.deleted_at.is_(None)))
+    target = result.scalar_one_or_none()
+    if target and target.user_id != user.id:
+        raise HTTPException(status_code=409, detail="This phone number is already in use")
+    records = (await db.execute(select(UserPhone).where(
+        UserPhone.user_id == user.id, UserPhone.deleted_at.is_(None)
+    ))).scalars().all()
+    for record in records:
+        record.is_primary = False
+    # Flush demotions first to respect the partial unique primary-phone index.
+    await db.flush()
+    if user.phone and user.phone != phone and not any(r.phone == user.phone for r in records):
+        db.add(UserPhone(user_id=user.id, phone=user.phone, is_primary=False, verified=False))
+    if target is None:
+        target = UserPhone(user_id=user.id, phone=phone)
+        db.add(target)
+    target.is_primary = True
+    target.verified = True
+    target.verified_at = datetime.now(timezone.utc)
+    user.phone = phone
+
+
 @router.post("/wechat-session")
 async def prepare_wechat_session(data: WechatSessionRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """Prepare WeChat identity and any existing seller login before a tap."""
@@ -220,7 +248,7 @@ async def wechat_login(data: WechatLoginRequest, response: Response, db: AsyncSe
         db.add(user)
         try:
             await db.flush()
-            db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True))
+            await _set_wechat_primary_phone(db, user, phone)
             db.add(SellerWechatAccount(user_id=user.id, openid=openid, unionid=session.get("unionid")))
             await db.commit()
         except IntegrityError:
@@ -241,6 +269,19 @@ async def wechat_login(data: WechatLoginRequest, response: Response, db: AsyncSe
 
     if user.role != "admin" and user.email and user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
+
+    try:
+        phone = await get_phone_number(data.phone_code)
+    except Exception:
+        logger.warning("WeChat phone exchange failed")
+        raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
+    try:
+        await _set_wechat_primary_phone(db, user, phone)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This phone number is already in use")
+    await db.refresh(user)
 
     response.headers["Server-Timing"] = (
         f"wechat_session;dur={session_ms:.1f}, db;dur={(time.perf_counter() - started) * 1000 - session_ms:.1f}"
@@ -333,7 +374,7 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
 @router.post("/wechat-bind", response_model=WechatAuthResponse)
 async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db)):
     try:
-        session, _ = await _resolve_wechat_credentials(data.code, data.phone_code)
+        session, phone = await _resolve_wechat_credentials(data.code, data.phone_code)
     except WechatLoginError as e:
         logger.warning("WeChat code_to_session failed: %s", e)
         raise HTTPException(status_code=502, detail="WeChat login service is temporarily unavailable")
@@ -369,6 +410,12 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
     account = existing.scalar_one_or_none()
     if account:
         if account.user_id == user.id:
+            try:
+                await _set_wechat_primary_phone(db, user, phone)
+                await db.commit()
+            except IntegrityError:
+                await db.rollback()
+                raise HTTPException(status_code=409, detail="This phone number is already in use")
             return WechatAuthResponse(**_auth_payload(user))
         raise HTTPException(status_code=409, detail="This WeChat account is already bound to another seller")
 
@@ -379,6 +426,11 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
         raise HTTPException(status_code=409, detail="This seller account is already bound to a WeChat account")
 
     db.add(SellerWechatAccount(user_id=user.id, openid=openid, unionid=unionid))
-    await db.commit()
+    try:
+        await _set_wechat_primary_phone(db, user, phone)
+        await db.commit()
+    except IntegrityError:
+        await db.rollback()
+        raise HTTPException(status_code=409, detail="This phone number or WeChat account is already in use")
 
     return WechatAuthResponse(**_auth_payload(user))

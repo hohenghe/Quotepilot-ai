@@ -34,7 +34,7 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "prepared"})) as exchange, \
              patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")) as phone, \
              patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), \
-             patch.object(wechat, "_set_wechat_primary_phone", AsyncMock()), \
+             patch.object(wechat, "_bind_authorized_phone", AsyncMock()), \
              patch.object(wechat, "create_access_token", return_value="token"):
             tasks = BackgroundTasks()
             prepared = await wechat.prepare_wechat_session(wechat.WechatSessionRequest(code="one-time-code"), tasks, db)
@@ -81,7 +81,7 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
              patch.object(wechat, "warm_phone_access_token", AsyncMock()) as warm, \
              patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")) as phone, \
              patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), \
-             patch.object(wechat, "_set_wechat_primary_phone", AsyncMock(side_effect=lambda db, user, phone: db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True)))), \
+             patch.object(wechat, "_bind_authorized_phone", AsyncMock(side_effect=lambda db, user, phone: db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True)))), \
              patch.object(wechat, "create_access_token", return_value="token"):
             tasks = BackgroundTasks()
             prepared = await wechat.prepare_wechat_session(wechat.WechatSessionRequest(code="c"), tasks, db)
@@ -94,8 +94,10 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
             )
             exchange.assert_awaited_once()
             phone.assert_awaited_once_with("p")
-        self.assertEqual(result.token, "token")
-        self.assertTrue(any(isinstance(item, UserPhone) and item.verified for item in added))
+        self.assertIsNone(result.token)
+        self.assertFalse(result.bound)
+        self.assertTrue(result.choice_token)
+        self.assertEqual(added, [])
 
     async def test_bound_login_checks_authorized_phone(self):
         user = SimpleNamespace(
@@ -113,7 +115,7 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "bound"})), \
              patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")) as phone, \
              patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), \
-             patch.object(wechat, "_set_wechat_primary_phone", AsyncMock()), \
+             patch.object(wechat, "_bind_authorized_phone", AsyncMock()), \
              patch.object(wechat, "create_access_token", return_value="token"):
             result = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), Response(), db)
         self.assertEqual(result.token, "token")
@@ -148,16 +150,26 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
             added.append(obj)
             if isinstance(obj, User): obj.id = 42
         db.add = add_user
+        async def bind_phone(db, user, phone):
+            user.phone = phone
+            db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True))
         with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "new-openid"})), \
              patch.object(wechat, "get_phone_number", AsyncMock(return_value="13800001234")), \
              patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), \
-             patch.object(wechat, "_set_wechat_primary_phone", AsyncMock(side_effect=lambda db, user, phone: db.add(UserPhone(user_id=user.id, phone=phone, is_primary=True, verified=True)))), \
+             patch.object(wechat, "_bind_authorized_phone", AsyncMock(side_effect=bind_phone)), \
              patch.object(wechat, "create_access_token", return_value="token"):
             response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), Response(), db)
+        self.assertIsNone(response.token)
+        self.assertTrue(response.registration_available)
+        self.assertEqual(added, [])
+        with patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), \
+             patch.object(wechat, "_bind_authorized_phone", AsyncMock(side_effect=bind_phone)), \
+             patch.object(wechat, "create_access_token", return_value="token"):
+            completed = await wechat.complete_wechat_registration(wechat.WechatChoiceRequest(choice_token=response.choice_token), db)
         user = next(item for item in added if isinstance(item, User))
         phone = next(item for item in added if isinstance(item, UserPhone))
         binding = next(item for item in added if isinstance(item, SellerWechatAccount))
-        self.assertEqual(response.token, "token")
+        self.assertEqual(completed.token, "token")
         self.assertIsNone(user.email)
         self.assertEqual(user.phone, "13800001234")
         self.assertTrue(phone.is_primary)
@@ -209,7 +221,7 @@ class DistributionTests(unittest.IsolatedAsyncioTestCase):
             db.execute = AsyncMock(return_value=SimpleNamespace(scalar_one_or_none=lambda: SimpleNamespace(user_id=1)))
             db.get = AsyncMock(return_value=seller)
             db.refresh = AsyncMock()
-            with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "test"})), patch.object(wechat, "get_phone_number", AsyncMock(return_value="123")), patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), patch.object(wechat, "_set_wechat_primary_phone", AsyncMock()), patch.object(wechat, "create_access_token", return_value="token"):
+            with patch.object(wechat, "code_to_session", AsyncMock(return_value={"openid": "test"})), patch.object(wechat, "get_phone_number", AsyncMock(return_value="123")), patch.object(wechat, "_phone_owners", AsyncMock(return_value=[])), patch.object(wechat, "_bind_authorized_phone", AsyncMock()), patch.object(wechat, "create_access_token", return_value="token"):
                 response = await wechat.wechat_login(wechat.WechatLoginRequest(code="c", phone_code="p"), Response(), db)
             self.assertIs(response.supports_distribution, value)
             db.commit.assert_awaited_once()

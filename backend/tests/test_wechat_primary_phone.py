@@ -1,4 +1,4 @@
-"""Offline regression checks for WeChat-authorized primary phone promotion."""
+"""Offline regression checks for WeChat-authorized phone ownership."""
 import sys
 import unittest
 from pathlib import Path
@@ -18,114 +18,60 @@ def result(value=None, records=None):
     return res
 
 
-class PrimaryPhoneTests(unittest.IsolatedAsyncioTestCase):
-    async def test_bound_login_with_other_account_phone_keeps_identity(self):
-        current = SimpleNamespace(id=1, is_active=True, role='seller', email=None)
-        other = SimpleNamespace(id=2, password_hash='stored-hash')
+class PhoneBindingTests(unittest.IsolatedAsyncioTestCase):
+    async def bind(self, original, authorized, records, owners=None):
+        user = SimpleNamespace(id=1, phone=original)
         db = Mock()
-        db.execute = AsyncMock(return_value=result(SimpleNamespace(user_id=1)))
-        db.get = AsyncMock(return_value=current)
-        db.commit = AsyncMock()
-        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'current'})), \
-             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
-             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[other])), \
-             patch.object(wechat, '_set_wechat_primary_phone', AsyncMock()) as promote, \
-             patch.object(wechat, '_auth_payload', return_value={'bound': True, 'token': 'current-token', 'user_id': 1}):
-            response = await wechat.wechat_login(wechat.WechatLoginRequest(code='code', phone_code='phone-code'), Response(), db)
-        self.assertEqual(response.user_id, 1)
-        self.assertIn('主手机号未更改', response.phone_binding_warning)
-        promote.assert_not_awaited()
-        db.commit.assert_not_awaited()
-
-    async def test_unbound_phone_only_account_reuses_existing_user(self):
-        owner = SimpleNamespace(id=2, phone='13800000000', is_active=True, role='seller',
-                                restricted_port=None, password_hash=None, email=None)
-        old_binding = SimpleNamespace(user_id=2, openid='old-openid', unionid=None)
-        db = Mock()
-        db.execute = AsyncMock(side_effect=[result(), result(old_binding)])
-        db.commit = AsyncMock()
-        db.refresh = AsyncMock()
-        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'new-openid'})), \
-             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
-             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[owner])), \
-             patch.object(wechat, '_set_wechat_primary_phone', AsyncMock()) as promote, \
-             patch.object(wechat, '_auth_payload', return_value={'bound': True, 'token': 'owner-token', 'user_id': 2}):
-            response = await wechat.wechat_login(wechat.WechatLoginRequest(code='code', phone_code='phone-code'), Response(), db)
-        self.assertEqual(response.user_id, 2)
-        self.assertEqual(old_binding.openid, 'new-openid')
-        promote.assert_awaited_once_with(db, owner, '13800000000')
-        db.add.assert_not_called()
-        db.commit.assert_awaited_once()
-
-    async def test_unbound_password_account_requires_password(self):
-        owner = SimpleNamespace(id=2, phone='13800000000', is_active=True, role='seller',
-                                restricted_port=None, password_hash='stored-hash')
-        db = Mock()
-        db.execute = AsyncMock(return_value=result())
-        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'new-openid'})), \
-             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
-             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[owner])):
-            with self.assertRaises(HTTPException) as caught:
-                await wechat.wechat_login(wechat.WechatLoginRequest(code='code', phone_code='phone-code'), Response(), db)
-        self.assertEqual(caught.exception.status_code, 409)
-        self.assertIn('账号密码登录并绑定微信', caught.exception.detail)
-        db.add.assert_not_called()
-
-    async def test_unbound_password_account_with_old_wechat_uses_password_login(self):
-        owner = SimpleNamespace(id=2, is_active=True, role='seller', restricted_port=None,
-                                password_hash='stored-hash')
-        db = Mock()
-        db.execute = AsyncMock(side_effect=[result(), result(SimpleNamespace(user_id=2))])
-        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'new-openid'})), \
-             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
-             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[owner])):
-            with self.assertRaises(HTTPException) as caught:
-                await wechat.wechat_login(wechat.WechatLoginRequest(code='code', phone_code='phone-code'), Response(), db)
-        self.assertIn('请使用账号密码登录', caught.exception.detail)
-        self.assertNotIn('并绑定微信', caught.exception.detail)
-        db.add.assert_not_called()
-
-    async def promote(self, old, target, records):
-        user = SimpleNamespace(id=1, phone=old)
-        db = Mock()
-        db.execute = AsyncMock(side_effect=[result(), result(), result(target), result(records=records)])
+        db.execute = AsyncMock(side_effect=[result(), result(records=records)])
         db.flush = AsyncMock()
-        await wechat._set_wechat_primary_phone(db, user, '13800000000')
+        with patch.object(wechat, '_phone_owners', AsyncMock(return_value=owners or [])):
+            await wechat._bind_authorized_phone(db, user, authorized)
         return user, db
 
-    async def test_promote_additional_and_preserve_old(self):
-        old = UserPhone(user_id=1, phone='13900000000', is_primary=True, verified=True)
-        target = UserPhone(user_id=1, phone='13800000000', is_primary=False, verified=False)
-        user, db = await self.promote(old.phone, target, [old, target])
-        self.assertFalse(old.is_primary)
-        self.assertTrue(target.is_primary)
-        self.assertTrue(target.verified)
-        self.assertIsNotNone(target.verified_at)
-        self.assertEqual(user.phone, target.phone)
+    async def test_existing_web_primary_remains_primary(self):
+        primary = UserPhone(user_id=1, phone='13900000000', is_primary=True, verified=True)
+        user, db = await self.bind(primary.phone, '13800000000', [primary])
+        secondary = db.add.call_args.args[0]
+        self.assertEqual(user.phone, primary.phone)
+        self.assertTrue(primary.is_primary)
+        self.assertEqual(secondary.phone, '13800000000')
+        self.assertFalse(secondary.is_primary)
+        self.assertTrue(secondary.verified)
+
+    async def test_wechat_account_without_phone_gets_primary(self):
+        user, db = await self.bind(None, '13800000000', [])
+        primary = db.add.call_args.args[0]
+        self.assertEqual(user.phone, '13800000000')
+        self.assertTrue(primary.is_primary and primary.verified)
+
+    async def test_repeat_authorization_does_not_duplicate(self):
+        primary = UserPhone(user_id=1, phone='13900000000', is_primary=True, verified=True)
+        secondary = UserPhone(user_id=1, phone='13800000000', is_primary=False, verified=False)
+        user, db = await self.bind(primary.phone, secondary.phone, [primary, secondary])
+        self.assertEqual(user.phone, primary.phone)
+        self.assertTrue(primary.is_primary)
+        self.assertFalse(secondary.is_primary)
+        self.assertTrue(secondary.verified)
         db.add.assert_not_called()
 
-    async def test_missing_record_created(self):
-        user, db = await self.promote('13800000000', None, [])
-        record = db.add.call_args.args[0]
-        self.assertEqual(record.phone, user.phone)
-        self.assertTrue(record.is_primary and record.verified)
+    async def test_legacy_mirror_is_repaired_without_replacing_primary(self):
+        stale = UserPhone(user_id=1, phone='13800000000', is_primary=True, verified=False)
+        user, db = await self.bind('13900000000', stale.phone, [stale])
+        self.assertEqual(user.phone, '13900000000')
+        self.assertFalse(stale.is_primary)
+        self.assertTrue(db.add.call_args.args[0].is_primary)
 
-    async def test_repeat_does_not_duplicate(self):
-        target = UserPhone(user_id=1, phone='13800000000', is_primary=True, verified=True)
-        _, db = await self.promote(target.phone, target, [target])
-        db.add.assert_not_called()
-        self.assertTrue(target.is_primary)
-
-    async def test_other_account_conflicts(self):
-        for legacy, target in [(2, None), (None, UserPhone(user_id=2, phone='13800000000'))]:
-            db = Mock()
-            db.execute = AsyncMock(side_effect=[result(), result(legacy), result(target)])
-            user = SimpleNamespace(id=1, phone='13900000000')
+    async def test_other_account_phone_conflicts(self):
+        owner = SimpleNamespace(id=2)
+        user = SimpleNamespace(id=1, phone='13900000000')
+        db = Mock()
+        db.execute = AsyncMock(return_value=result())
+        with patch.object(wechat, '_phone_owners', AsyncMock(return_value=[owner])):
             with self.assertRaises(HTTPException) as caught:
-                await wechat._set_wechat_primary_phone(db, user, '13800000000')
-            self.assertEqual(caught.exception.status_code, 409)
-            self.assertEqual(user.phone, '13900000000')
-            db.add.assert_not_called()
+                await wechat._bind_authorized_phone(db, user, '13800000000')
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertEqual(user.phone, '13900000000')
+        db.add.assert_not_called()
 
     async def test_bound_login_exchanges_phone_before_return(self):
         user = SimpleNamespace(id=1, is_active=True, role='seller', email=None)
@@ -137,12 +83,94 @@ class PrimaryPhoneTests(unittest.IsolatedAsyncioTestCase):
         with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'openid'})), \
              patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')) as exchange, \
              patch.object(wechat, '_phone_owners', AsyncMock(return_value=[])), \
-             patch.object(wechat, '_set_wechat_primary_phone', AsyncMock()) as promote, \
+             patch.object(wechat, '_bind_authorized_phone', AsyncMock()) as bind, \
              patch.object(wechat, '_auth_payload', return_value={'bound': True}):
             await wechat.wechat_login(wechat.WechatLoginRequest(code='code', phone_code='phone-code'), Response(), db)
-            exchange.assert_awaited_once_with('phone-code')
-            promote.assert_awaited_once_with(db, user, '13800000000')
-            db.commit.assert_awaited_once()
+        exchange.assert_awaited_once_with('phone-code')
+        bind.assert_awaited_once_with(db, user, '13800000000')
+        db.commit.assert_awaited_once()
+
+    async def test_bound_login_with_other_account_phone_keeps_identity(self):
+        current = SimpleNamespace(id=1, is_active=True, role='seller', email=None)
+        other = SimpleNamespace(id=2, password_hash='stored-hash')
+        db = Mock()
+        db.execute = AsyncMock(return_value=result(SimpleNamespace(user_id=1)))
+        db.get = AsyncMock(return_value=current)
+        db.commit = AsyncMock()
+        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'current'})), \
+             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
+             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[other])), \
+             patch.object(wechat, '_bind_authorized_phone', AsyncMock()) as bind, \
+             patch.object(wechat, '_auth_payload', return_value={'bound': True, 'token': 'current-token', 'user_id': 1}):
+            response = await wechat.wechat_login(wechat.WechatLoginRequest(code='code', phone_code='phone-code'), Response(), db)
+        self.assertEqual(response.user_id, 1)
+        self.assertIn('主手机号未更改', response.phone_binding_warning)
+        bind.assert_not_awaited()
+        db.commit.assert_not_awaited()
+
+    async def test_unbound_old_wechat_phone_cannot_take_over(self):
+        owner = SimpleNamespace(id=2, is_active=True, role='seller', restricted_port=None,
+                                password_hash=None, email=None)
+        db = Mock()
+        db.execute = AsyncMock(side_effect=[result(), result(SimpleNamespace(user_id=2))])
+        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'new'})), \
+             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
+             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[owner])):
+            with self.assertRaises(HTTPException) as caught:
+                await wechat.wechat_login(wechat.WechatLoginRequest(code='c', phone_code='p'), Response(), db)
+        self.assertEqual(caught.exception.status_code, 409)
+        db.add.assert_not_called()
+
+    async def test_existing_web_phone_offers_binding_not_registration(self):
+        owner = SimpleNamespace(id=2, is_active=True, role='seller', restricted_port=None,
+                                password_hash='hash', email='seller@example.com', email_verified_at=object())
+        db = Mock()
+        db.execute = AsyncMock(side_effect=[result(), result()])
+        with patch.object(wechat, 'code_to_session', AsyncMock(return_value={'openid': 'new'})), \
+             patch.object(wechat, 'get_phone_number', AsyncMock(return_value='13800000000')), \
+             patch.object(wechat, '_phone_owners', AsyncMock(return_value=[owner])):
+            response = await wechat.wechat_login(
+                wechat.WechatLoginRequest(code='c', phone_code='p'), Response(), db)
+        self.assertFalse(response.bound)
+        self.assertFalse(response.registration_available)
+        self.assertTrue(response.choice_token)
+        db.add.assert_not_called()
+
+    async def test_choice_ticket_cannot_be_replaced_by_login_token(self):
+        ordinary = wechat.create_access_token(1, 'seller')
+        with self.assertRaises(HTTPException) as caught:
+            wechat._decode_phone_choice_token(ordinary)
+        self.assertEqual(caught.exception.status_code, 400)
+
+    async def test_registration_rechecks_phone_ownership(self):
+        ticket = wechat._create_phone_choice_token({'openid': 'new'}, '13800000000')
+        db = Mock()
+        db.execute = AsyncMock(return_value=result())
+        with patch.object(wechat, '_phone_owners', AsyncMock(return_value=[SimpleNamespace(id=2)])):
+            with self.assertRaises(HTTPException) as caught:
+                await wechat.complete_wechat_registration(
+                    wechat.WechatChoiceRequest(choice_token=ticket), db)
+        self.assertEqual(caught.exception.status_code, 409)
+        db.add.assert_not_called()
+
+    async def test_explicit_binding_reuses_choice_ticket(self):
+        user = SimpleNamespace(id=2, role='seller', phone='13900000000', email_verified_at=object(),
+                               password_hash='hash', restricted_port=None)
+        ticket = wechat._create_phone_choice_token({'openid': 'new'}, '13800000000')
+        db = Mock()
+        db.execute = AsyncMock(side_effect=[result(records=[user]), result(), result()])
+        db.commit = AsyncMock()
+        with patch.object(wechat, 'login_locked', return_value=False, create=True), \
+             patch.object(wechat, 'verify_password', return_value=True), \
+             patch.object(wechat, 'run_password_operation', AsyncMock(return_value=True), create=True), \
+             patch.object(wechat, 'password_needs_rehash', return_value=False, create=True), \
+             patch.object(wechat, '_bind_authorized_phone', AsyncMock()) as bind, \
+             patch.object(wechat, '_auth_payload', return_value={'bound': True, 'token': 'token'}):
+            response = await wechat.wechat_bind(
+                wechat.WechatBindRequest(choice_token=ticket, identifier='seller@example.com', password='pw'), db)
+        self.assertTrue(response.bound)
+        bind.assert_awaited_once_with(db, user, '13800000000')
+        db.commit.assert_awaited_once()
 
 
 if __name__ == '__main__':

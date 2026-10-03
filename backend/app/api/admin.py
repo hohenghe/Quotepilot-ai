@@ -1,14 +1,15 @@
 import logging
-from datetime import datetime, timezone
+import hmac
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, delete, or_, func
+from sqlalchemy import select, delete, or_, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from sqlalchemy.exc import IntegrityError
-from app.core.security import generate_uid, hash_password, generate_email_code, hash_email_code
+from app.core.security import generate_uid, hash_password, generate_email_code, hash_admin_email_test_code
 from app.core.auth_protection import run_password_operation
 from app.core.database import get_db
 from app.core.auth import require_admin
@@ -23,6 +24,7 @@ from app.models.review import Review
 from app.services.rating import compute_seller_scores
 from app.core.config import is_llm_available
 from app.services.email import send_verification_email
+from app.services.email_verification import CODE_LIFETIME, MAX_CODE_ATTEMPTS
 from app.services.llm import analyze_inquiry
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
@@ -81,7 +83,11 @@ async def create_account(data: CreateAccountRequest, db: AsyncSession = Depends(
 
 
 class TestEmailRequest(BaseModel):
-    email: str
+    email: str = Field(max_length=300)
+
+
+class VerifyTestEmailRequest(TestEmailRequest):
+    code: str = Field(pattern=r"^[0-9]{6}$")
 
 
 class TestLlmRequest(BaseModel):
@@ -172,34 +178,88 @@ async def delete_users_batch(
 @router.post("/tests/verification-email")
 async def test_verification_email(
     data: TestEmailRequest,
-    _: User = Depends(require_admin),
+    admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
 ):
-    """Send a delivery-only verification email test without touching accounts/tokens."""
-    email = data.email.strip()
+    """Send a separately scoped code for the admin's delivery-and-entry test."""
+    email = data.email.strip().lower()
     if not email or "@" not in email:
         raise HTTPException(status_code=422, detail="Please enter a valid email address")
 
-    # Avoid matching any currently active code for this mailbox. This test
-    # code is never stored, so it cannot verify an account.
-    active = (await db.execute(select(User.id, AuthToken.token_hash).join(
-        AuthToken, AuthToken.user_id == User.id,
-    ).where(
-        func.lower(User.email) == email.lower(),
-        AuthToken.token_type == "email_verification",
+    now = datetime.now(timezone.utc)
+    latest = (await db.execute(select(AuthToken).where(
+        AuthToken.user_id == admin.id,
+        AuthToken.token_type == "admin_email_test",
         AuthToken.used_at.is_(None),
-        AuthToken.expires_at > datetime.now(timezone.utc),
-    ))).all()
-    for _ in range(5):
-        code = generate_email_code()
-        if all(hash_email_code(user_id, code) != digest for user_id, digest in active):
-            break
-    else:
-        raise HTTPException(status_code=503, detail="Could not prepare test verification code")
+    ).order_by(AuthToken.created_at.desc(), AuthToken.id.desc()).limit(1))).scalar_one_or_none()
+    if latest and latest.created_at:
+        created_at = latest.created_at if latest.created_at.tzinfo else latest.created_at.replace(tzinfo=timezone.utc)
+        if now - created_at < timedelta(seconds=60):
+            raise HTTPException(status_code=429, detail="Please wait before sending another test code.",
+                                headers={"Retry-After": "60"})
+
+    await db.execute(update(AuthToken).where(
+        AuthToken.user_id == admin.id,
+        AuthToken.token_type == "admin_email_test",
+        AuthToken.used_at.is_(None),
+    ).values(used_at=now))
+    code = generate_email_code()
+    token = AuthToken(
+        user_id=admin.id,
+        token_hash=hash_admin_email_test_code(admin.id, email, code),
+        token_type="admin_email_test",
+        expires_at=now + CODE_LIFETIME,
+    )
+    db.add(token)
+    await db.commit()
     sent = await send_verification_email(email, code)
     if not sent:
+        token.used_at = datetime.now(timezone.utc)
+        await db.commit()
         raise HTTPException(status_code=502, detail="Verification email was not sent. Check the mail configuration and delivery logs.")
-    return {"success": True, "message": "Test verification code email sent. The code is intentionally not valid for account verification."}
+    return {"success": True, "message": "Test code sent. Enter it within 5 minutes to complete the email test."}
+
+
+@router.post("/tests/verification-email/verify")
+async def verify_test_verification_email(
+    data: VerifyTestEmailRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Confirm test-mail receipt without verifying or changing any user account."""
+    email = data.email.strip().lower()
+    now = datetime.now(timezone.utc)
+    invalid = HTTPException(status_code=400, detail="Test code is invalid or expired.")
+    token = (await db.execute(select(AuthToken).where(
+        AuthToken.user_id == admin.id,
+        AuthToken.token_type == "admin_email_test",
+        AuthToken.used_at.is_(None),
+    ).order_by(AuthToken.created_at.desc(), AuthToken.id.desc()).limit(1))).scalar_one_or_none()
+    if not token:
+        raise invalid
+    expires_at = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at <= now or token.failed_attempts >= MAX_CODE_ATTEMPTS:
+        raise invalid
+    expected = hash_admin_email_test_code(admin.id, email, data.code)
+    if not hmac.compare_digest(token.token_hash, expected):
+        await db.execute(update(AuthToken).where(
+            AuthToken.id == token.id,
+            AuthToken.used_at.is_(None),
+            AuthToken.failed_attempts < MAX_CODE_ATTEMPTS,
+        ).values(failed_attempts=AuthToken.failed_attempts + 1).execution_options(synchronize_session=False))
+        await db.commit()
+        raise invalid
+    claimed = await db.execute(update(AuthToken).where(
+        AuthToken.id == token.id,
+        AuthToken.used_at.is_(None),
+        AuthToken.expires_at > now,
+        AuthToken.failed_attempts < MAX_CODE_ATTEMPTS,
+        AuthToken.token_hash == expected,
+    ).values(used_at=now).execution_options(synchronize_session=False))
+    if claimed.rowcount != 1:
+        raise invalid
+    await db.commit()
+    return {"success": True, "message": "Test email code verified successfully."}
 
 
 @router.post("/tests/llm")

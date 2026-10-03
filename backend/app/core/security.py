@@ -39,6 +39,12 @@ def hash_email_code(user_id: int, code: str) -> str:
     return hmac.new(SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
 
 
+def hash_admin_email_test_code(admin_id: int, email: str, code: str) -> str:
+    """Bind a delivery-test code to its admin and recipient, separate from signup."""
+    message = f"admin-email-test:{admin_id}:{email.strip().lower()}:{code}".encode("utf-8")
+    return hmac.new(SECRET_KEY.encode("utf-8"), message, hashlib.sha256).hexdigest()
+
+
 def hash_password(password: str) -> str:
     """Argon2id encodes a fresh random salt and its cost parameters in the hash."""
     return _password_hasher.hash(password)

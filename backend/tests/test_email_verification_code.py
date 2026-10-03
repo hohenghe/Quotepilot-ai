@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
 
 from app.api import admin, auth
 from app.core.database import get_db
-from app.core.security import generate_token, hash_token
+from app.core.security import create_access_token, generate_token, hash_token
 from app.models.auth_token import AuthToken
 from app.models.user import User
 from app.services import email
@@ -32,9 +32,12 @@ class EmailCodeTests(unittest.IsolatedAsyncioTestCase):
         self.sessions = async_sessionmaker(self.engine, expire_on_commit=False)
         async with self.sessions() as db:
             user = User(email="buyer@example.com", role="buyer", country="CN", is_active=True)
-            db.add(user)
+            admin_user = User(email="admin@example.com", role="admin", country="CN", is_active=True,
+                              auth_version=0, email_verified_at=datetime.now(timezone.utc))
+            db.add_all([user, admin_user])
             await db.commit()
             self.user_id = user.id
+            self.admin_id = admin_user.id
 
     async def asyncTearDown(self):
         await self.engine.dispose()
@@ -123,18 +126,106 @@ class EmailCodeTests(unittest.IsolatedAsyncioTestCase):
                     auth.VerifyEmailRequest(email="buyer@example.com", code="654321"), db,
                 ))["success"])
 
-    async def test_admin_delivery_sends_unstored_six_digit_code(self):
+    async def test_admin_delivery_requires_code_entry_and_does_not_verify_account(self):
         with patch.object(admin, "send_verification_email", AsyncMock(return_value=True)) as send:
             async with self.sessions() as db:
                 response = await admin.test_verification_email(
                     admin.TestEmailRequest(email="buyer@example.com"),
-                    await db.get(User, self.user_id), db,
+                    await db.get(User, self.admin_id), db,
                 )
                 self.assertTrue(response["success"])
                 code = send.await_args.args[1]
                 self.assertRegex(code, r"^[0-9]{6}$")
+                token = (await db.execute(select(AuthToken))).scalar_one()
+                self.assertEqual(token.token_type, "admin_email_test")
+                self.assertNotEqual(token.token_hash, code)
+                expires_at = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)
+                self.assertLess(abs((expires_at - datetime.now(timezone.utc)).total_seconds() - 300), 5)
                 with self.assertRaises(HTTPException):
                     await auth.verify_email(auth.VerifyEmailRequest(email="buyer@example.com", code=code), db)
+                with self.assertRaises(HTTPException):
+                    await admin.verify_test_verification_email(
+                        admin.VerifyTestEmailRequest(email="other@example.com", code=code),
+                        await db.get(User, self.admin_id), db,
+                    )
+                db.expire_all()
+                token = (await db.execute(select(AuthToken))).scalar_one()
+                self.assertEqual(token.failed_attempts, 1)
+                verified = await admin.verify_test_verification_email(
+                    admin.VerifyTestEmailRequest(email="buyer@example.com", code=code),
+                    await db.get(User, self.admin_id), db,
+                )
+                self.assertTrue(verified["success"])
+                with self.assertRaises(HTTPException):
+                    await admin.verify_test_verification_email(
+                        admin.VerifyTestEmailRequest(email="buyer@example.com", code=code),
+                        await db.get(User, self.admin_id), db,
+                    )
+                db.expire_all()
+                buyer = await db.get(User, self.user_id)
+                self.assertIsNone(buyer.email_verified_at)
+
+    async def test_admin_test_code_expiry_and_attempt_limit(self):
+        with patch.object(admin, "send_verification_email", AsyncMock(return_value=True)), \
+             patch.object(admin, "generate_email_code", return_value="123456"):
+            async with self.sessions() as db:
+                admin_user = await db.get(User, self.admin_id)
+                await admin.test_verification_email(admin.TestEmailRequest(email="buyer@example.com"), admin_user, db)
+                with self.assertRaises(HTTPException) as cooldown:
+                    await admin.test_verification_email(admin.TestEmailRequest(email="buyer@example.com"), admin_user, db)
+                self.assertEqual(cooldown.exception.status_code, 429)
+                token = (await db.execute(select(AuthToken))).scalar_one()
+                token.expires_at = datetime.now(timezone.utc) - timedelta(seconds=1)
+                await db.commit()
+                with self.assertRaises(HTTPException):
+                    await admin.verify_test_verification_email(
+                        admin.VerifyTestEmailRequest(email="buyer@example.com", code="123456"), admin_user, db,
+                    )
+                token.expires_at = datetime.now(timezone.utc) + timedelta(minutes=5)
+                await db.commit()
+                for _ in range(5):
+                    with self.assertRaises(HTTPException):
+                        await admin.verify_test_verification_email(
+                            admin.VerifyTestEmailRequest(email="buyer@example.com", code="999999"), admin_user, db,
+                        )
+                db.expire_all()
+                token = (await db.execute(select(AuthToken))).scalar_one()
+                self.assertEqual(token.failed_attempts, 5)
+                admin_user = await db.get(User, self.admin_id)
+                with self.assertRaises(HTTPException):
+                    await admin.verify_test_verification_email(
+                        admin.VerifyTestEmailRequest(email="buyer@example.com", code="123456"), admin_user, db,
+                    )
+
+    async def test_admin_test_code_http_flow(self):
+        from app.main import app
+
+        async def override_db():
+            async with self.sessions() as db:
+                yield db
+
+        app.dependency_overrides[get_db] = override_db
+        try:
+            with patch.object(admin, "send_verification_email", AsyncMock(return_value=True)) as send:
+                transport = httpx.ASGITransport(app=app)
+                headers = {"Authorization": f"Bearer {create_access_token(self.admin_id, 'admin')}"}
+                async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+                    denied = await client.post("/api/admin/tests/verification-email/verify",
+                                               json={"email": "buyer@example.com", "code": "123456"},
+                                               headers={"Authorization": f"Bearer {create_access_token(self.user_id, 'buyer')}"})
+                    self.assertEqual(denied.status_code, 403)
+                    sent = await client.post("/api/admin/tests/verification-email",
+                                             json={"email": "buyer@example.com"}, headers=headers)
+                    self.assertEqual(sent.status_code, 200, sent.text)
+                    code = send.await_args.args[1]
+                    checked = await client.post("/api/admin/tests/verification-email/verify",
+                                                json={"email": "buyer@example.com", "code": code}, headers=headers)
+                    self.assertEqual(checked.status_code, 200, checked.text)
+                    replay = await client.post("/api/admin/tests/verification-email/verify",
+                                               json={"email": "buyer@example.com", "code": code}, headers=headers)
+                    self.assertEqual(replay.status_code, 400)
+        finally:
+            app.dependency_overrides.pop(get_db, None)
 
     async def test_http_register_verify_then_login(self):
         from app.main import app

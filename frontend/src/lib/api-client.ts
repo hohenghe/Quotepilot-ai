@@ -420,6 +420,13 @@ export async function adminSendTestVerificationEmail(email: string): Promise<{ m
   })
 }
 
+export async function adminVerifyTestEmailCode(email: string, code: string): Promise<{ message: string }> {
+  return await request("/api/admin/tests/verification-email/verify", {
+    method: "POST",
+    body: JSON.stringify({ email, code }),
+  })
+}
+
 export async function adminTestLlm(prompt: string): Promise<{ ai_used: boolean; analysis: Record<string, unknown> }> {
   return await request("/api/admin/tests/llm", {
     method: "POST",

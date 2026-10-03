@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag, FlaskConical, Send, Bot, Plus } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
-import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminTestLlm, adminCreateTestProduct, adminDeleteTestProduct } from "@/lib/api-client"
+import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminVerifyTestEmailCode, adminTestLlm, adminCreateTestProduct, adminDeleteTestProduct } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -94,6 +94,9 @@ export default function AdminPage() {
   const [testEmail, setTestEmail] = useState("")
   const [sendingTestEmail, setSendingTestEmail] = useState(false)
   const [testEmailResult, setTestEmailResult] = useState<string | null>(null)
+  const [testEmailCode, setTestEmailCode] = useState("")
+  const [verifyingTestEmail, setVerifyingTestEmail] = useState(false)
+  const [testEmailVerified, setTestEmailVerified] = useState(false)
   const [testPrompt, setTestPrompt] = useState("Please analyze a request for 500 LED desk lamps, 12W, CE certified, delivered to Germany.")
   const [testingLlm, setTestingLlm] = useState(false)
   const [llmResult, setLlmResult] = useState<Record<string, unknown> | null>(null)
@@ -316,14 +319,34 @@ export default function AdminPage() {
     setSendingTestEmail(true)
     setTestEmailResult(null)
     try {
-      const result = await adminSendTestVerificationEmail(testEmail.trim())
-      setTestEmailResult(result.message)
-      toast.push("success", "验证邮件测试已发送")
+      const recipient = testEmail.trim()
+      await adminSendTestVerificationEmail(recipient)
+      setTestEmailCode("")
+      setTestEmailVerified(false)
+      setTestEmailResult("验证码已发送，请在 5 分钟内回输，完成邮件功能测试。")
+      toast.push("success", "测试验证码已发送")
     } catch (error) {
       setTestEmailResult(errorMessage(error))
-      toast.push("error", "验证邮件测试失败")
+      toast.push("error", "测试验证码发送失败")
     } finally {
       setSendingTestEmail(false)
+    }
+  }
+
+  const handleVerifyTestEmail = async () => {
+    if (!/^\d{6}$/.test(testEmailCode) || !testEmail.trim()) return
+    setVerifyingTestEmail(true)
+    setTestEmailResult(null)
+    try {
+      await adminVerifyTestEmailCode(testEmail.trim(), testEmailCode)
+      setTestEmailVerified(true)
+      setTestEmailResult("测试通过：邮件送达且回输验证码正确。")
+      toast.push("success", "邮件验证码测试通过")
+    } catch {
+      setTestEmailResult("验证码不正确或已过期，请重试；过期后可重新发送。")
+      toast.push("error", "验证码无效或已过期")
+    } finally {
+      setVerifyingTestEmail(false)
     }
   }
 
@@ -835,18 +858,42 @@ export default function AdminPage() {
                 <Mail className="w-5 h-5 text-brand-600" />
                 <h2 className="font-semibold">验证邮件投递</h2>
               </div>
-              <p className="mt-2 text-sm text-slate-500">向指定地址发送六位数字验证码邮件，用于检查 Brevo 配置和邮件送达。测试验证码不能验证账户。</p>
+              <p className="mt-2 text-sm text-slate-500">向指定地址发送六位验证码，再回输验证，检查 Brevo 投递与验证码校验。测试不会改变账户状态。</p>
               <input
                 className="input mt-4"
                 type="email"
                 value={testEmail}
-                onChange={e => setTestEmail(e.target.value)}
+                onChange={e => {
+                  setTestEmail(e.target.value)
+                  setTestEmailCode("")
+                  setTestEmailVerified(false)
+                  setTestEmailResult(null)
+                }}
+                disabled={sendingTestEmail || verifyingTestEmail}
                 placeholder="test@example.com"
               />
               <button className="btn-primary mt-3 w-full" onClick={handleTestEmail} disabled={sendingTestEmail || !testEmail.trim()}>
                 <Send className="w-4 h-4" />
-                {sendingTestEmail ? "发送中…" : "发送测试验证邮件"}
+                {sendingTestEmail ? "发送中…" : "发送测试验证码"}
               </button>
+              {!!testEmail.trim() && !testEmailVerified && (
+                <div className="mt-4 border-t border-slate-200 pt-4">
+                  <label className="label">回输发往 {testEmail.trim()} 的六位验证码</label>
+                  <input
+                    className="input mt-2 text-center tracking-widest"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={testEmailCode}
+                    onChange={e => setTestEmailCode(e.target.value.replace(/\D/g, ""))}
+                    placeholder="六位数字验证码"
+                  />
+                  <button className="btn-primary mt-3 w-full" onClick={handleVerifyTestEmail}
+                    disabled={verifyingTestEmail || sendingTestEmail || testEmailCode.length !== 6}>
+                    {verifyingTestEmail ? "验证中…" : "验证测试码"}
+                  </button>
+                </div>
+              )}
               {testEmailResult && <p className="mt-3 rounded-lg bg-slate-50 p-3 text-xs text-slate-600 break-words">{testEmailResult}</p>}
             </section>
 

@@ -386,6 +386,16 @@ async def init_db():
             except Exception as e:
                 logger.warning("Create product index %s failed: %s", label, e)
 
+        # Home and inquiry list both filter by seller and show newest first.
+        # PostgreSQL does not automatically index foreign-key columns.
+        try:
+            await conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_seller_inquiries_seller_created "
+                "ON seller_inquiries (seller_id, created_at DESC, id DESC)"
+            ))
+        except Exception as e:
+            logger.warning("Create seller inquiry index failed: %s", e)
+
         # ── saved_products: DB-level unique(user_id, product_id) ──
         # The ORM UniqueConstraint only applies on fresh tables; this ensures it
         # on migrated DBs too, closing a race that allows duplicate favorites.

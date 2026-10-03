@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends
+from time import perf_counter
+from fastapi import APIRouter, Depends, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
@@ -7,9 +8,74 @@ from app.models.product import Product
 from app.models.inquiry import Inquiry
 from app.models.quote import Quote
 from app.models.user import User
+from app.models.seller_inquiry import SellerInquiry
 from app.services.rating import compute_seller_scores
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
+
+
+@router.get("/seller-home")
+async def seller_home(
+    response: Response,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(require_seller),
+):
+    """One small, authenticated response for the mini-program home screen."""
+    started = perf_counter()
+    product_count = (
+        select(func.count(Product.id))
+        .where(Product.seller_id == user.id, Product.is_active == True)
+        .scalar_subquery()
+    )
+    counts = (await db.execute(
+        select(
+            product_count,
+            func.count(SellerInquiry.id),
+            func.count(SellerInquiry.id).filter(SellerInquiry.status == "pending"),
+            func.count(SellerInquiry.id).filter(SellerInquiry.status == "replied"),
+        ).where(SellerInquiry.seller_id == user.id)
+    )).one()
+    counts_done = perf_counter()
+    recent = (await db.execute(
+        select(
+            SellerInquiry.id,
+            SellerInquiry.buyer_email,
+            SellerInquiry.status,
+            SellerInquiry.raw_message,
+        )
+        .where(SellerInquiry.seller_id == user.id)
+        .order_by(SellerInquiry.created_at.desc(), SellerInquiry.id.desc())
+        .limit(5)
+    )).all()
+    recent_done = perf_counter()
+    scores = await compute_seller_scores(db, [user.id])
+    score_done = perf_counter()
+    response.headers["Cache-Control"] = "no-store"
+    response.headers["Server-Timing"] = (
+        f"counts;dur={(counts_done - started) * 1000:.1f}, "
+        f"recent;dur={(recent_done - counts_done) * 1000:.1f}, "
+        f"score;dur={(score_done - recent_done) * 1000:.1f}"
+    )
+    return {
+        "email": user.email,
+        "store_name": user.store_name,
+        "name": user.name,
+        "uid": user.uid,
+        "product_count": counts[0] or 0,
+        "inquiry_count": counts[1] or 0,
+        "pending_count": counts[2] or 0,
+        "replied_count": counts[3] or 0,
+        "score": scores.get(user.id),
+        "inquiries": [
+            {
+                "id": row.id,
+                "buyer_email": row.buyer_email,
+                "status": row.status,
+                "raw_message": row.raw_message,
+            }
+            for row in recent
+        ],
+    }
 
 
 @router.get("")

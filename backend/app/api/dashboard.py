@@ -7,7 +7,7 @@ from app.models.product import Product
 from app.models.inquiry import Inquiry
 from app.models.quote import Quote
 from app.models.user import User
-from app.services.rating import compute_seller_score
+from app.services.rating import compute_seller_scores
 
 router = APIRouter(prefix="/api/dashboard", tags=["dashboard"])
 
@@ -97,20 +97,22 @@ async def admin_list_sellers(
     )
     sellers = result.scalars().all()
 
+    seller_ids = [s.id for s in sellers]
+    product_counts = dict((await db.execute(
+        select(Product.seller_id, func.count(Product.id))
+        .where(Product.seller_id.in_(seller_ids), Product.is_active == True)
+        .group_by(Product.seller_id)
+    )).all()) if seller_ids else {}
+    scores = await compute_seller_scores(db, seller_ids)
+
     items = []
     for s in sellers:
-        product_count = (await db.execute(
-            select(func.count(Product.id)).where(
-                Product.seller_id == s.id, Product.is_active == True
-            )
-        )).scalar() or 0
-        score = await compute_seller_score(db, s.id)
         items.append({
             "id": s.id,
             "email": s.email,
             "name": s.name,
-            "product_count": product_count,
-            "score": score,
+            "product_count": product_counts.get(s.id, 0),
+            "score": scores.get(s.id),
             "created_at": s.created_at.isoformat() if s.created_at else None,
         })
 

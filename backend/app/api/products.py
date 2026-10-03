@@ -156,7 +156,9 @@ async def create_product(
 @router.get("/{product_id}", response_model=ProductResponse)
 async def get_product(product_id: int, db: AsyncSession = Depends(get_db)):
     result = await db.execute(
-        select(Product, _favorite_count_subquery().label("favorite_count")).where(Product.id == product_id)
+        select(Product, _favorite_count_subquery().label("favorite_count"))
+        .options(defer(Product.embedding, raiseload=True))
+        .where(Product.id == product_id)
     )
     row = result.first()
     if not row:
@@ -241,7 +243,8 @@ async def update_product(
     user: User = Depends(require_seller),
 ):
     result = await db.execute(
-        select(Product).where(Product.id == product_id, Product.seller_id == user.id)
+        select(Product).options(defer(Product.embedding, raiseload=True))
+        .where(Product.id == product_id, Product.seller_id == user.id)
     )
     product = result.scalar_one_or_none()
     if not product:
@@ -338,7 +341,8 @@ async def delete_product(
     user: User = Depends(require_seller),
 ):
     result = await db.execute(
-        select(Product).where(Product.id == product_id, Product.seller_id == user.id)
+        select(Product).options(defer(Product.embedding, raiseload=True))
+        .where(Product.id == product_id, Product.seller_id == user.id)
     )
     product = result.scalar_one_or_none()
     if not product:
@@ -383,6 +387,7 @@ async def admin_list_all_products(
 ):
     query = (
         select(Product, User.name, User.email, User.store_name, _favorite_count_subquery().label("favorite_count"))
+        .options(defer(Product.embedding, raiseload=True))
         .outerjoin(User, Product.seller_id == User.id)
         .where(Product.is_active == True)
     )

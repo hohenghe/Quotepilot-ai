@@ -3,6 +3,7 @@ import logging
 import random
 from typing import Any
 import httpx
+from app.core.http_clients import get_http_client
 
 from app.core.config import settings
 
@@ -31,15 +32,15 @@ async def embedding_api_call_with_retry(
     last_error = None
     for attempt in range(max_retries + 1):
         try:
-            async with httpx.AsyncClient(timeout=float(settings.EMBEDDING_TIMEOUT)) as client:
-                resp = await client.post(
-                    f"{url}/embeddings",
-                    headers={
-                        "Content-Type": "application/json",
-                        "Authorization": f"Bearer {key}",
-                    },
-                    json={"model": settings.EMBEDDING_MODEL, "input": inputs},
-                )
+            resp = await get_http_client().post(
+                f"{url}/embeddings",
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {key}",
+                },
+                json={"model": settings.EMBEDDING_MODEL, "input": inputs},
+                timeout=float(settings.EMBEDDING_TIMEOUT),
+            )
 
             if resp.status_code == 200:
                 data = resp.json()

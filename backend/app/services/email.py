@@ -5,7 +5,7 @@ frontend. Send failures return False (the caller decides how to react).
 """
 import logging
 
-import httpx
+from app.core.http_clients import get_http_client
 
 from app.core.config import settings
 
@@ -33,15 +33,15 @@ async def _send_transactional_email(
     }
 
     try:
-        async with httpx.AsyncClient(timeout=20.0) as client:
-            resp = await client.post(
-                BREVO_SEND_URL,
-                headers={
-                    "api-key": settings.BREVO_API_KEY,
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-            )
+        resp = await get_http_client().post(
+            BREVO_SEND_URL,
+            headers={
+                "api-key": settings.BREVO_API_KEY,
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=20.0,
+        )
     except Exception as exc:
         logger.warning("Brevo send error: %s", str(exc)[:200])
         return False

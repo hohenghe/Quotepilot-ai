@@ -1,6 +1,7 @@
+import asyncio
 import csv
 import io
-from typing import Any
+from typing import Any, Iterable
 
 COLUMN_ALIASES = {
     "name": ["name", "productname", "product", "product_name"],
@@ -13,6 +14,10 @@ COLUMN_ALIASES = {
     "pricing": ["pricing"],
     "lead_time_days": ["leadtime", "lead_time", "leadtime_days", "lead_time_days", "deliverydays"],
 }
+
+# Parsing XLSX/PDF is CPU and memory intensive. Limit concurrent uploads per
+# worker so a burst does not consume every default executor thread.
+_PARSE_SEMAPHORE = asyncio.Semaphore(2)
 
 
 def _normalize(key: str) -> str:
@@ -46,18 +51,18 @@ def _resolve_column(headers: list[str]) -> dict[str, int]:
     return mapping
 
 
-def _rows_to_products(rows: list[list[str]]) -> list[dict[str, Any]]:
-    if len(rows) < 2:
+def _rows_to_products(rows: Iterable[list[str]]) -> list[dict[str, Any]]:
+    rows = iter(rows)
+    headers = next(rows, None)
+    if headers is None:
         raise ValueError("File must have a header row and at least one data row")
-
-    headers = rows[0]
     col_map = _resolve_column(headers)
 
     if "name" not in col_map:
         raise ValueError("File must have a 'name' column")
 
     products: list[dict[str, Any]] = []
-    for row in rows[1:]:
+    for row in rows:
         if not row or all(not cell.strip() for cell in row):
             continue
 
@@ -93,27 +98,29 @@ def _rows_to_products(rows: list[list[str]]) -> list[dict[str, Any]]:
     return products
 
 
-async def _parse_csv(content: bytes) -> list[dict[str, Any]]:
-    text = content.decode("utf-8-sig")
-    reader = csv.reader(io.StringIO(text))
-    rows = [[cell.strip() for cell in row] for row in reader]
-    return _rows_to_products(rows)
+def _parse_csv(content: bytes) -> list[dict[str, Any]]:
+    # Decode one record at a time; holding a full Unicode copy while building
+    # all Product dictionaries caused high peak memory on large uploads.
+    with io.TextIOWrapper(io.BytesIO(content), encoding="utf-8-sig", newline="") as stream:
+        return _rows_to_products(csv.reader(stream))
 
 
-async def _parse_excel(content: bytes) -> list[dict[str, Any]]:
+def _parse_excel(content: bytes) -> list[dict[str, Any]]:
     from openpyxl import load_workbook
 
     wb = load_workbook(io.BytesIO(content), read_only=True, data_only=True)
-    ws = wb.active
-    rows: list[list[str]] = []
-    for row in ws.iter_rows(values_only=True):
-        if row is None:
-            continue
-        rows.append(["" if cell is None else str(cell).strip() for cell in row])
-    return _rows_to_products(rows)
+    try:
+        ws = wb.active
+        rows = (
+            ["" if cell is None else str(cell).strip() for cell in row]
+            for row in ws.iter_rows(values_only=True)
+        )
+        return _rows_to_products(rows)
+    finally:
+        wb.close()
 
 
-async def _parse_docx(content: bytes) -> list[dict[str, Any]]:
+def _parse_docx(content: bytes) -> list[dict[str, Any]]:
     from docx import Document
 
     doc = Document(io.BytesIO(content))
@@ -126,7 +133,7 @@ async def _parse_docx(content: bytes) -> list[dict[str, Any]]:
     return _rows_to_products(rows)
 
 
-async def _parse_pdf(content: bytes) -> list[dict[str, Any]]:
+def _parse_pdf(content: bytes) -> list[dict[str, Any]]:
     from PyPDF2 import PdfReader
 
     reader = PdfReader(io.BytesIO(content))
@@ -161,17 +168,15 @@ async def _parse_pdf(content: bytes) -> list[dict[str, Any]]:
 async def parse_file(filename: str, file_content: bytes) -> list[dict[str, Any]]:
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
 
-    if ext == "csv":
-        return await _parse_csv(file_content)
-    if ext == "xlsx":
-        return await _parse_excel(file_content)
+    parsers = {"csv": _parse_csv, "xlsx": _parse_excel,
+               "docx": _parse_docx, "pdf": _parse_pdf}
+    parser = parsers.get(ext)
+    if parser is not None:
+        async with _PARSE_SEMAPHORE:
+            return await asyncio.to_thread(parser, file_content)
     if ext == "xls":
         raise ValueError("Legacy .xls format is not supported; please upload .xlsx")
-    if ext == "docx":
-        return await _parse_docx(file_content)
     if ext == "doc":
         raise ValueError("Legacy .doc format is not supported; please upload .docx")
-    if ext == "pdf":
-        return await _parse_pdf(file_content)
 
     raise ValueError(f"Unsupported file type: {ext}")

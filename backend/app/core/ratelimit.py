@@ -7,7 +7,7 @@ flood (the primary DoS vector for this endpoint).
 """
 import asyncio
 import time
-from collections import defaultdict, deque
+from collections import deque
 from typing import Optional
 
 import logging
@@ -15,9 +15,11 @@ import logging
 logger = logging.getLogger(__name__)
 
 # Sliding-window counters: key -> deque of monotonic timestamps.
-_windows: dict[str, deque] = defaultdict(deque)
+_windows: dict[str, deque] = {}
 
 _WINDOW_SECONDS = 60
+_MAX_WINDOW_KEYS = 10_000
+_last_sweep = 0.0
 
 # Lazy global semaphore (created on first use inside the running event loop).
 _analyze_semaphore: Optional[asyncio.Semaphore] = None
@@ -46,8 +48,19 @@ def get_client_ip(request) -> str:
 
 def rate_exceeded(key: str, limit: int) -> bool:
     """Return True if the key has exceeded `limit` requests in the sliding window."""
+    global _last_sweep
     now = time.monotonic()
-    dq = _windows[key]
+    if now - _last_sweep >= _WINDOW_SECONDS:
+        for stale_key, timestamps in list(_windows.items()):
+            if not timestamps or now - timestamps[-1] > _WINDOW_SECONDS:
+                del _windows[stale_key]
+        _last_sweep = now
+
+    dq = _windows.get(key)
+    if dq is None:
+        if len(_windows) >= _MAX_WINDOW_KEYS:
+            _windows.pop(next(iter(_windows)))
+        dq = _windows[key] = deque()
     while dq and now - dq[0] > _WINDOW_SECONDS:
         dq.popleft()
     if len(dq) >= limit:

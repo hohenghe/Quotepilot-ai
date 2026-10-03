@@ -15,6 +15,10 @@ Uses httpx ASGITransport (no real HTTP server). The auth-rejection and
 rate-limit tests do NOT require a database because the guards fire before
 any DB query is executed.
 """
+# This module is a standalone async runner; pytest has no `client` fixture for
+# these functions. Keep `python tests/test_security_integration.py` as its entry.
+__test__ = False
+
 import os
 import sys
 import asyncio

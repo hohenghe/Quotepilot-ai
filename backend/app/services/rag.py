@@ -1,6 +1,7 @@
 import logging
 from typing import Any
-from sqlalchemy import text
+from sqlalchemy import case, func, literal, select, text
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import is_embedding_available
 from app.services.embedding import generate_query_embedding
@@ -12,11 +13,7 @@ _rag_logged = False
 
 
 def _keyword_score(query: str, product: dict[str, Any]) -> float:
-    query_lower = query.lower()
-    keywords = list(dict.fromkeys(
-        kw for kw in query_lower.replace(",", " ").replace(".", " ").replace("/", " ").split()
-        if len(kw) >= 2
-    ))
+    keywords = _keywords(query)
     name = (product.get("name") or "").lower()
     category = (product.get("category") or "").lower().replace("_", " ")
     desc = (product.get("description") or "").lower()
@@ -36,6 +33,33 @@ def _keyword_score(query: str, product: dict[str, Any]) -> float:
         if kw in certs:
             score += 0.05
     return min(score, 1.0)
+
+
+def _keywords(query: str) -> list[str]:
+    return list(dict.fromkeys(
+        kw for kw in query.lower().replace(",", " ").replace(".", " ").replace("/", " ").split()
+        if len(kw) >= 2
+    ))[:32]
+
+
+def _keyword_order(query: str):
+    """Order the fallback across all active rows before applying a LIMIT."""
+    from app.models.product import Product
+
+    fields = (
+        (Product.name, 0.5),
+        (func.replace(Product.category, "_", " "), 0.25),
+        (Product.description, 0.15),
+        (Product.technical_specs, 0.1),
+        (Product.certifications, 0.05),
+    )
+    score = literal(0.0)
+    for keyword in _keywords(query):
+        # Escape SQL wildcards so '%' and '_' are treated as ordinary query text.
+        pattern = "%" + keyword.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%"
+        for column, weight in fields:
+            score += case((column.ilike(pattern, escape="\\"), weight), else_=0.0)
+    return func.least(score, 1.0)
 
 
 async def search_products_hybrid(
@@ -111,12 +135,15 @@ async def search_products_hybrid(
             }
             candidates.append(d)
     else:
-        # Keyword-only fallback: load all active products
-        from sqlalchemy import select
-        from sqlalchemy.orm import defer
+        # Keyword-only fallback: rank all active products in SQL, then fetch
+        # only the best candidates for the existing Python reranker.
         from app.models.product import Product
         result = await db.execute(
-            select(Product).options(defer(Product.embedding, raiseload=True)).where(Product.is_active == True).limit(candidate_limit * 2)
+            select(Product)
+            .options(defer(Product.embedding, raiseload=True))
+            .where(Product.is_active == True)
+            .order_by(_keyword_order(query).desc(), Product.id)
+            .limit(candidate_limit * 2)
         )
         all_products = list(result.scalars().all())
         candidates = [

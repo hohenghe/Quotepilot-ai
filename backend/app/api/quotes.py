@@ -5,6 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
+from sqlalchemy.orm import defer
 
 from app.core.database import get_db
 from app.core.auth import require_auth, require_admin
@@ -43,9 +44,9 @@ async def generate_quote(
     # Get selected products (or all matched)
     product_ids = request.selected_product_ids
     if product_ids:
-        result = await db.execute(select(Product).where(Product.id.in_(product_ids)))
+        result = await db.execute(select(Product).options(defer(Product.embedding, raiseload=True)).where(Product.id.in_(product_ids)))
     else:
-        result = await db.execute(select(Product).where(Product.is_active == True).limit(5))
+        result = await db.execute(select(Product).options(defer(Product.embedding, raiseload=True)).where(Product.is_active == True).limit(5))
 
     products = result.scalars().all()
 
@@ -68,6 +69,9 @@ async def generate_quote(
         }
         for p in products
     ]
+
+    # Release the read transaction and its DB connection before the LLM call.
+    await db.commit()
 
     email_data = await generate_quote_email(
         inquiry_text=inquiry.raw_message,

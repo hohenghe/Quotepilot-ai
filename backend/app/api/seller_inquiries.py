@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+from sqlalchemy.orm import defer
 from pydantic import BaseModel
 from app.core.database import get_db
 from app.core.auth import require_seller, require_auth
@@ -30,7 +31,8 @@ async def send_inquiry(
 ):
     # Find the product and its seller
     result = await db.execute(
-        select(Product).where(Product.id == data.product_id, Product.is_active == True)
+        select(Product).options(defer(Product.embedding, raiseload=True))
+        .where(Product.id == data.product_id, Product.is_active == True)
     )
     product = result.scalar_one_or_none()
     if not product:
@@ -143,7 +145,10 @@ async def generate_reply(
         # Get product info
         matched_products = []
         if inquiry.product_id:
-            p_result = await db.execute(select(Product).where(Product.id == inquiry.product_id))
+            p_result = await db.execute(
+                select(Product).options(defer(Product.embedding, raiseload=True))
+                .where(Product.id == inquiry.product_id)
+            )
             product = p_result.scalar_one_or_none()
             if product:
                 matched_products = [{
@@ -159,6 +164,9 @@ async def generate_reply(
                     "lead_time_days": product.lead_time_days,
                     "certifications": product.certifications,
                 }]
+
+        # Keep the connection pool free during the external LLM request.
+        await db.commit()
 
         email_data = await generate_quote_email(
             inquiry_text=inquiry.raw_message,

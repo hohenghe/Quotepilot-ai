@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import defer
 from app.core.database import get_db
 from app.core.auth import require_seller, get_current_user
 from app.models.user import User
@@ -51,6 +52,7 @@ async def seller_products(
     )
     stmt = (
         select(Product, fav_subq.label("favorite_count"))
+        .options(defer(Product.embedding, raiseload=True))
         .where(Product.seller_id == seller_id, Product.is_active == True)
         .order_by(Product.created_at.desc())
     )

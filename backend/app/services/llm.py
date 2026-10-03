@@ -2,7 +2,7 @@ import re
 import json
 import logging
 from typing import Any
-import httpx
+from app.core.http_clients import get_http_client
 
 from app.core.config import settings, is_llm_available
 
@@ -64,22 +64,22 @@ async def _call_llm(
     if json_mode:
         body["response_format"] = {"type": "json_object"}
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        resp = await client.post(
-            f"{settings.OPENAI_BASE_URL}/chat/completions",
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
-            },
-            json=body,
-        )
+    resp = await get_http_client().post(
+        f"{settings.OPENAI_BASE_URL}/chat/completions",
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {settings.OPENAI_API_KEY}",
+        },
+        json=body,
+        timeout=60.0,
+    )
 
-        if resp.status_code != 200:
-            raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
+    if resp.status_code != 200:
+        raise RuntimeError(f"LLM API error {resp.status_code}: {resp.text[:500]}")
 
-        data = resp.json()
-        _log_usage(data, operation)
-        return data.get("choices", [{}])[0].get("message", {}).get("content", "")
+    data = resp.json()
+    _log_usage(data, operation)
+    return data.get("choices", [{}])[0].get("message", {}).get("content", "")
 
 
 def _log_usage(data: dict[str, Any], operation: str) -> None:

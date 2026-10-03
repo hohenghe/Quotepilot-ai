@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select, delete, func
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel
 from app.core.database import get_db
@@ -21,8 +22,10 @@ async def save_product(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_buyer),
 ):
-    product = await db.get(Product, data.product_id)
-    if not product or not product.is_active:
+    product_id = (await db.execute(
+        select(Product.id).where(Product.id == data.product_id, Product.is_active == True)
+    )).scalar_one_or_none()
+    if product_id is None:
         raise HTTPException(status_code=404, detail="Product not found")
 
     existing = await db.execute(
@@ -46,6 +49,7 @@ async def list_saved(
 ):
     stmt = (
         select(SavedProduct, Product)
+        .options(defer(Product.embedding, raiseload=True))
         .join(Product, SavedProduct.product_id == Product.id)
         .where(SavedProduct.user_id == user.id, Product.is_active == True)
         .order_by(SavedProduct.created_at.desc())

@@ -144,6 +144,7 @@ async def analyze_and_match(
             )
         except Exception as e:
             logger.warning("Search failed, returning empty matches: %s", str(e)[:200])
+            await db.rollback()
             match_results = []
 
         # ── 3. Collect favorite counts (read-only, brief; non-critical) ──
@@ -159,6 +160,7 @@ async def analyze_and_match(
                 fav_counts = {pid: cnt for pid, cnt in fav_rows.all()}
             except Exception:
                 logger.warning("Favorite count query failed (non-critical)")
+                await db.rollback()
 
         # ── 4. Collect seller names (read-only, brief; non-critical) ──
         seller_ids = {mp.get("seller_id") for mp in match_results if mp.get("seller_id")}
@@ -172,6 +174,7 @@ async def analyze_and_match(
                 seller_names = {sid: (store_name or name or email) for sid, name, email, store_name in seller_rows.all()}
             except Exception:
                 logger.warning("Seller name query failed (non-critical)")
+                await db.rollback()
 
         if data.custom_products:
             match_results = select_supplier_matches(match_results, seller_names)
@@ -214,6 +217,7 @@ async def analyze_and_match(
             await db.refresh(analysis)
             inquiry.analyses = [analysis]
         except Exception:
+            await db.rollback()
             logger.exception("DB write failed during /analyze")
             raise HTTPException(
                 status_code=503,

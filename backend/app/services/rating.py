@@ -11,11 +11,15 @@ def review_weight(review: Review) -> float:
       - content length: up to +2.0 (saturates at 100 characters)
       - images: +1.0 (flat bonus for having at least one image)
     """
+    return _review_weight_values(review.content, review.images)
+
+
+def _review_weight_values(content: str | None, images: list | None) -> float:
     weight = 1.0
-    content = (review.content or "").strip()
+    content = (content or "").strip()
     if content:
         weight += min(len(content) / 50.0, 2.0)
-    if review.images:
+    if images:
         weight += 1.0
     return weight
 
@@ -42,3 +46,23 @@ async def compute_seller_score(db: AsyncSession, seller_id: int) -> float | None
     if total_weight == 0:
         return None
     return round(weighted_sum / total_weight, 1)
+
+
+async def compute_seller_scores(db: AsyncSession, seller_ids: list[int]) -> dict[int, float]:
+    """Score a page of sellers with one review query instead of one per seller."""
+    if not seller_ids:
+        return {}
+    rows = (await db.execute(
+        select(Review.seller_id, Review.rating, Review.content, Review.images)
+        .where(Review.seller_id.in_(seller_ids))
+    )).all()
+    totals: dict[int, list[float]] = {}
+    for seller_id, rating, content, images in rows:
+        weight = _review_weight_values(content, images)
+        weighted_sum, total_weight = totals.setdefault(seller_id, [0.0, 0.0])
+        totals[seller_id] = [weighted_sum + (rating or 0.0) * weight, total_weight + weight]
+    return {
+        seller_id: round(weighted_sum / total_weight, 1)
+        for seller_id, (weighted_sum, total_weight) in totals.items()
+        if total_weight
+    }

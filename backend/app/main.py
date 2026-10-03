@@ -212,6 +212,8 @@ async def lifespan(app: FastAPI):
             pass
     await _close_ai_client()
     await _close_wechat_client()
+    from app.core.http_clients import close_http_client
+    await close_http_client()
 
 
 async def _ensure_admin():
@@ -233,14 +235,15 @@ async def _ensure_test_accounts():
 
 
 async def _reset_stuck_embeddings():
-    """Reset products stuck in 'processing' (from a crashed worker) back to 'pending'."""
+    """Requeue old claims without stealing work from another live API process."""
     from sqlalchemy import text
     from app.core.database import engine
     try:
         async with engine.begin() as conn:
             await conn.execute(text(
                 "UPDATE products SET embedding_status='pending' "
-                "WHERE embedding_status='processing' AND is_active=true"
+                "WHERE embedding_status='processing' AND is_active=true "
+                "AND (updated_at IS NULL OR updated_at < NOW() - INTERVAL '20 minutes')"
             ))
     except Exception:
         logger.exception("Failed to reset stuck embeddings on startup")

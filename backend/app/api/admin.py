@@ -18,7 +18,7 @@ from app.models.quote import Quote
 from app.models.seller_inquiry import SellerInquiry
 from app.models.saved_product import SavedProduct
 from app.models.review import Review
-from app.services.rating import compute_seller_score
+from app.services.rating import compute_seller_scores
 from app.core.config import is_llm_available
 from app.services.email import send_verification_email
 from app.services.llm import analyze_inquiry
@@ -129,9 +129,10 @@ async def list_users(
     total = (await db.execute(count_query)).scalar() or 0
 
     rows = (await db.execute(query.offset((page - 1) * page_size).limit(page_size))).scalars().all()
+    scores = await compute_seller_scores(db, [u.id for u in rows if u.role == "seller"])
     items = []
     for u in rows:
-        score = await compute_seller_score(db, u.id) if u.role == "seller" else None
+        score = scores.get(u.id) if u.role == "seller" else None
         items.append({
             "id": u.id,
             "email": u.email,

@@ -341,7 +341,11 @@ async function postAuth(path: string, body: unknown): Promise<AuthResult> {
   }
 }
 
-export async function verifyEmail(token: string): Promise<AuthResult> {
+export async function verifyEmail(email: string, code: string): Promise<AuthResult> {
+  return await postAuth("/api/auth/verify-email", { email, code })
+}
+
+export async function verifyLegacyEmailLink(token: string): Promise<AuthResult> {
   return await postAuth("/api/auth/verify-email", { token })
 }
 

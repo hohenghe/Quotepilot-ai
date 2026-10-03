@@ -18,9 +18,8 @@ from app.models.seller_wechat_account import SellerWechatAccount
 
 logger = logging.getLogger(__name__)
 
-# Matches VERIFICATION_TOKEN_TTL in app/api/auth.py: the window a seller is
-# allowed to verify their email. An unverified seller older than this whose
-# tokens have all expired is considered abandoned.
+# Keep unverified sellers for 24 hours so they can request another code after
+# each five-minute code expires. Older accounts with no valid code are abandoned.
 VERIFICATION_GRACE = timedelta(hours=24)
 
 CLEANUP_INTERVAL_SECONDS = 3600

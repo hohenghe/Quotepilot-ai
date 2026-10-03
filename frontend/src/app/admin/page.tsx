@@ -835,7 +835,7 @@ export default function AdminPage() {
                 <Mail className="w-5 h-5 text-brand-600" />
                 <h2 className="font-semibold">验证邮件投递</h2>
               </div>
-              <p className="mt-2 text-sm text-slate-500">向指定地址发送验证邮件样式，用于检查 Brevo 配置和邮件送达。邮件中的链接仅用于测试，不能验证账户。</p>
+              <p className="mt-2 text-sm text-slate-500">向指定地址发送六位数字验证码邮件，用于检查 Brevo 配置和邮件送达。测试验证码不能验证账户。</p>
               <input
                 className="input mt-4"
                 type="email"

@@ -8,10 +8,12 @@ from sqlalchemy import select, delete, or_, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field, StrictBool, field_validator
 from sqlalchemy.exc import IntegrityError
-from app.core.security import generate_uid, hash_password
+from app.core.security import generate_uid, hash_password, generate_email_code, hash_email_code
+from app.core.auth_protection import run_password_operation
 from app.core.database import get_db
 from app.core.auth import require_admin
 from app.models.user import User
+from app.models.auth_token import AuthToken
 from app.models.product import Product
 from app.models.inquiry import Inquiry, InquiryAnalysis
 from app.models.quote import Quote
@@ -62,7 +64,7 @@ async def create_account(data: CreateAccountRequest, db: AsyncSession = Depends(
     existing = await db.execute(select(User.id).where(func.lower(User.email) == data.email))
     if existing.first():
         raise HTTPException(status_code=409, detail="该邮箱已存在，请使用其他邮箱")
-    user = User(email=data.email, password_hash=hash_password(data.password),
+    user = User(email=data.email, password_hash=await run_password_operation(hash_password, data.password),
                 name=data.name, store_name=data.name if data.role == "seller" else None,
                 role=data.role, restricted_port=data.role, country="CN", uid=generate_uid(),
                 supports_distribution=data.supports_distribution if data.role == "seller" else None,
@@ -171,18 +173,33 @@ async def delete_users_batch(
 async def test_verification_email(
     data: TestEmailRequest,
     _: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
 ):
     """Send a delivery-only verification email test without touching accounts/tokens."""
     email = data.email.strip()
     if not email or "@" not in email:
         raise HTTPException(status_code=422, detail="Please enter a valid email address")
 
-    # This token intentionally is not stored: the email checks Brevo delivery
-    # and rendering only, and cannot change an account if clicked.
-    sent = await send_verification_email(email, "admin-delivery-test")
+    # Avoid matching any currently active code for this mailbox. This test
+    # code is never stored, so it cannot verify an account.
+    active = (await db.execute(select(User.id, AuthToken.token_hash).join(
+        AuthToken, AuthToken.user_id == User.id,
+    ).where(
+        func.lower(User.email) == email.lower(),
+        AuthToken.token_type == "email_verification",
+        AuthToken.used_at.is_(None),
+        AuthToken.expires_at > datetime.now(timezone.utc),
+    ))).all()
+    for _ in range(5):
+        code = generate_email_code()
+        if all(hash_email_code(user_id, code) != digest for user_id, digest in active):
+            break
+    else:
+        raise HTTPException(status_code=503, detail="Could not prepare test verification code")
+    sent = await send_verification_email(email, code)
     if not sent:
         raise HTTPException(status_code=502, detail="Verification email was not sent. Check the mail configuration and delivery logs.")
-    return {"success": True, "message": "Test verification email sent. Its link is intentionally not valid for account verification."}
+    return {"success": True, "message": "Test verification code email sent. The code is intentionally not valid for account verification."}
 
 
 @router.post("/tests/llm")

@@ -1,11 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Eye, EyeOff, MailCheck } from "lucide-react"
 import Link from "next/link"
 import { COUNTRIES } from "@/lib/countries"
 import { CHINA_PROVINCES, CHINA_REGIONS, parseRegion, regionValue } from "@/lib/china-cities"
-import { resendVerification } from "@/lib/api-client"
+import { resendVerification, verifyEmail } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import BrandLogo from "@/components/BrandLogo"
@@ -46,6 +46,17 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
   const [resending, setResending] = useState(false)
   const [resendMessage, setResendMessage] = useState<string | null>(null)
+  const [resendCooldown, setResendCooldown] = useState(0)
+  const [verificationCode, setVerificationCode] = useState("")
+  const [verifying, setVerifying] = useState(false)
+  const [verified, setVerified] = useState(false)
+  const [verificationError, setVerificationError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (resendCooldown <= 0) return
+    const timer = window.setTimeout(() => setResendCooldown(resendCooldown - 1), 1000)
+    return () => window.clearTimeout(timer)
+  }, [resendCooldown])
 
   const handleSubmit = async () => {
     setLocalError(null)
@@ -78,21 +89,48 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
     const result = await onSubmit({ email, password, name, country, phone, supportsDistribution: supportsDistribution ?? undefined })
     if (result && result.type === "registered") {
       setRegisteredEmail(result.email)
+      setResendCooldown(60)
     }
   }
 
   const handleResend = async () => {
-    if (!registeredEmail) return
+    if (!registeredEmail || resendCooldown > 0) return
     setResending(true)
     setResendMessage(null)
     try {
       const res = await resendVerification(registeredEmail)
       setResendMessage(res.success ? t.auth.resendSent : res.message)
+      if (res.success) {
+        setResendCooldown(60)
+        setVerificationCode("")
+      }
     } catch {
       setResendMessage(t.common.somethingWentWrong)
     } finally {
       setResending(false)
     }
+  }
+
+  const handleVerify = async () => {
+    if (!registeredEmail || !/^\d{6}$/.test(verificationCode)) {
+      setVerificationError(t.auth.verifyInvalid)
+      return
+    }
+    setVerifying(true)
+    setVerificationError(null)
+    const result = await verifyEmail(registeredEmail, verificationCode)
+    setVerifying(false)
+    if (result.success) setVerified(true)
+    else setVerificationError(result.status === 429 ? t.auth.waitCooldown : t.auth.verifyInvalid)
+  }
+
+  const handleGoLogin = () => {
+    setRegisteredEmail(null)
+    setResendMessage(null)
+    setVerificationCode("")
+    setVerified(false)
+    setResendCooldown(0)
+    if (mode === "register") onToggleMode()
   }
 
   const displayError = localError || error
@@ -109,21 +147,27 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
           <div className="mx-auto w-12 h-12 rounded-full bg-brand-50 text-brand-600 flex items-center justify-center mb-4">
             <MailCheck className="w-6 h-6" />
           </div>
-          <h1 className="text-xl font-bold text-slate-900">{t.auth.verifyPrompt}</h1>
+          <h1 className="text-xl font-bold text-slate-900">{verified ? t.auth.verifySuccess : t.auth.verifyPrompt}</h1>
           <p className="text-sm text-slate-500 mt-2">{registeredEmail}</p>
 
-          {resendMessage && <p className="text-sm text-slate-600 mt-3">{resendMessage}</p>}
-
-          <button
-            className="btn-primary w-full justify-center mt-6"
-            onClick={handleResend}
-            disabled={resending}
-          >
-            {resending ? t.common.loading : t.auth.resendVerification}
-          </button>
+          {!verified && <>
+            <label className="label block text-left mt-5">{t.auth.verificationCode}</label>
+            <input className="input-field text-center tracking-widest" inputMode="numeric" autoComplete="one-time-code"
+              maxLength={6} value={verificationCode} onChange={e => setVerificationCode(e.target.value.replace(/\D/g, ""))} />
+            {verificationError && <p className="text-sm text-red-600 mt-3">{verificationError}</p>}
+            {resendMessage && <p className="text-sm text-slate-600 mt-3">{resendMessage}</p>}
+            <button className="btn-primary w-full justify-center mt-5" onClick={handleVerify}
+              disabled={verifying || verificationCode.length !== 6}>
+              {verifying ? t.auth.verifying : t.auth.verifyCode}
+            </button>
+            <button className="w-full text-center text-sm text-brand-600 hover:text-brand-700 mt-4"
+              onClick={handleResend} disabled={resending || resendCooldown > 0}>
+              {resending ? t.common.loading : resendCooldown > 0 ? `${t.auth.resendVerification} (${resendCooldown}s)` : t.auth.resendVerification}
+            </button>
+          </>}
           <button
             className="w-full text-center text-sm text-brand-600 hover:text-brand-700 mt-4"
-            onClick={() => { setRegisteredEmail(null); setResendMessage(null) }}
+            onClick={handleGoLogin}
           >
             {t.auth.goToLogin}
           </button>
@@ -308,12 +352,14 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
         </button>
 
         {mode === "login" && (
-          <Link
-            href="/forgot-password"
-            className="block text-center text-sm text-slate-500 hover:text-slate-700 mt-4"
-          >
-            {t.auth.forgotPassword}
-          </Link>
+          <>
+            <Link href="/forgot-password" className="block text-center text-sm text-slate-500 hover:text-slate-700 mt-4">
+              {t.auth.forgotPassword}
+            </Link>
+            {role !== "admin" && <Link href="/verify-email" className="block text-center text-sm text-brand-600 hover:text-brand-700 mt-3">
+              {t.auth.verifyCode}
+            </Link>}
+          </>
         )}
 
         {role !== "admin" && (

@@ -90,6 +90,9 @@ class Settings(BaseSettings):
     # Comma-separated allowed CORS origins (production). e.g.
     # "https://zhermai.com,https://www.zhermai.com". Empty in dev → localhost.
     CORS_ORIGINS: str = ""
+    # Comma-separated CIDRs of proxies that overwrite/append forwarding headers.
+    # Empty means use the direct TCP peer and ignore untrusted IP headers.
+    TRUSTED_PROXY_CIDRS: str = ""
 
     # Admin account provisioning (read from env; no hardcoded production creds).
     # In production, if ADMIN_PASSWORD is unset, admin creation is skipped with a
@@ -103,6 +106,7 @@ class Settings(BaseSettings):
     ANALYZE_ANON_RATE: int = 5      # guest: 5 req/min/IP
     ANALYZE_USER_RATE: int = 30     # logged-in: 30 req/min/user
     ANALYZE_MAX_CONCURRENCY: int = 8  # global in-flight cap for /analyze
+    API_IP_RATE: int = Field(default=600, ge=1)  # coarse per-minute abuse backstop
 
     # Cloudflare R2 S3 API. Validated when the application starts in production
     # and at first storage operation in development.

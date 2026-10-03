@@ -1,9 +1,10 @@
 from datetime import datetime, timedelta, timezone
 import logging
+import hmac
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, or_, update, func
-from pydantic import BaseModel, StrictBool
+from pydantic import BaseModel, Field, StrictBool
 from app.core.database import get_db
 from app.core.security import (
     hash_password,
@@ -12,11 +13,17 @@ from app.core.security import (
     generate_uid,
     generate_token,
     hash_token,
+    hash_email_code,
+    password_needs_rehash,
+)
+from app.core.auth_protection import (
+    clear_login_failures, login_locked, record_login_failure, run_password_operation,
 )
 from app.core.auth import require_auth
 from app.models.user import User
 from app.models.auth_token import AuthToken
 from app.services.email import send_verification_email, send_password_reset_email
+from app.services.email_verification import issue_email_code, MAX_CODE_ATTEMPTS
 from app.services.wechat import get_phone_number, WechatLoginError
 from app.api.media import require_media_url
 
@@ -32,7 +39,7 @@ RESEND_COOLDOWN = timedelta(seconds=60)
 class RegisterRequest(BaseModel):
     supports_distribution: StrictBool | None = None
     email: str | None = None
-    password: str
+    password: str = Field(max_length=1024)
     name: str | None = None
     store_name: str | None = None
     country: str
@@ -45,8 +52,8 @@ class WechatPhoneRequest(BaseModel):
 
 
 class LoginRequest(BaseModel):
-    identifier: str
-    password: str
+    identifier: str = Field(max_length=300)
+    password: str = Field(max_length=1024)
     role: str | None = None
 
 
@@ -64,7 +71,9 @@ class ResendVerificationRequest(BaseModel):
 
 
 class VerifyEmailRequest(BaseModel):
-    token: str
+    email: str | None = None
+    code: str | None = Field(default=None, pattern=r"^[0-9]{6}$")
+    token: str | None = None  # Accept already-issued links until they expire.
 
 
 class ForgotPasswordRequest(BaseModel):
@@ -73,12 +82,12 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str
+    new_password: str = Field(max_length=1024)
 
 
 class ChangePasswordRequest(BaseModel):
-    current_password: str
-    new_password: str
+    current_password: str = Field(max_length=1024)
+    new_password: str = Field(max_length=1024)
 
 
 class AuthResponse(BaseModel):
@@ -172,17 +181,17 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     if data.role == "seller" and (not data.name or not data.name.strip()):
         raise HTTPException(status_code=400, detail="Company name is required for sellers")
 
-    email = data.email.strip() if data.email else None
+    email = data.email.strip().lower() if data.email else None
     if email:
         existing = await db.execute(
-            select(User).where(User.email == email, User.role == data.role)
+            select(User).where(func.lower(User.email) == email, User.role == data.role)
         )
         if existing.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="An account with this role already exists for this email")
 
     user = User(
         email=email,
-        password_hash=hash_password(data.password),
+        password_hash=await run_password_operation(hash_password, data.password),
         role=data.role,
         supports_distribution=data.supports_distribution if data.role == "seller" else None,
         name=data.name.strip() if data.name else None,
@@ -196,25 +205,25 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(user)
 
-    # Create verification token and send the email. On failure, keep the account
+    # Create verification code and send the email. On failure, keep the account
     # (so the user can resend) but return a clear error.
     if not user.email:
         return {"success": True, "message": "Registration successful. You can now sign in with your phone number."}
 
-    token = await _create_token(db, user.id, "email_verification")
+    code = await issue_email_code(db, user.id)
     await db.commit()
 
-    sent = await send_verification_email(user.email, token)
+    sent = await send_verification_email(user.email, code)
     if not sent:
         raise HTTPException(
             status_code=500,
-            detail="Account created, but we could not send the verification email. "
-                   "Please use 'Resend verification email' to try again.",
+            detail="Account created, but we could not send the verification code. "
+                   "Please request another code to try again.",
         )
 
     return {
         "success": True,
-        "message": "Registration successful. Please check your email to verify your account.",
+        "message": "Registration successful. Enter the six-digit code sent to your email.",
     }
 
 
@@ -234,6 +243,8 @@ async def get_wechat_phone(data: WechatPhoneRequest):
 
 @router.post("/login", response_model=AuthResponse)
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+    if login_locked(data.identifier):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please try again later.", headers={"Retry-After": "300"})
     result = await db.execute(
         select(User).where(
             User.is_active == True,
@@ -245,9 +256,10 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
         )
     )
     candidates = result.scalars().all()
-    matched = [u for u in candidates if verify_password(data.password, u.password_hash)]
+    matched = [u for u in candidates if await run_password_operation(verify_password, data.password, u.password_hash)]
 
     if not matched:
+        record_login_failure(data.identifier)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     user = None
@@ -271,6 +283,10 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
     if user.role != "admin" and user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before signing in.")
 
+    clear_login_failures(data.identifier)
+    if password_needs_rehash(user.password_hash):
+        user.password_hash = await run_password_operation(hash_password, data.password)
+        await db.commit()
     token = create_access_token(user.id, user.role, user.auth_version or 0)
     return AuthResponse(
         token=token, user_id=user.id, email=user.email, role=user.role,
@@ -282,6 +298,69 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
 
 @router.post("/verify-email")
 async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_db)):
+    if data.email and data.code:
+        email = data.email.strip().lower()
+        users = (await db.execute(select(User).where(
+            func.lower(User.email) == email,
+            User.is_active == True,
+            User.email_verified_at.is_(None),
+        ))).scalars().all()
+        if users:
+            tokens = (await db.execute(select(AuthToken).where(
+                AuthToken.user_id.in_([user.id for user in users]),
+                AuthToken.token_type == "email_verification",
+                AuthToken.used_at.is_(None),
+            ).order_by(AuthToken.created_at.desc(), AuthToken.id.desc()))).scalars().all()
+            latest = {}
+            for candidate in tokens:
+                latest.setdefault(candidate.user_id, candidate)
+            now = _now()
+            recent_failures = (await db.execute(select(func.coalesce(func.sum(AuthToken.failed_attempts), 0)).where(
+                AuthToken.user_id.in_([user.id for user in users]),
+                AuthToken.token_type == "email_verification",
+                AuthToken.created_at > now - timedelta(hours=1),
+            ))).scalar() or 0
+            if recent_failures >= 20:
+                raise HTTPException(status_code=400, detail="Verification code is invalid or expired.")
+            for user in users:
+                candidate = latest.get(user.id)
+                if not candidate:
+                    continue
+                expires_at = candidate.expires_at
+                if expires_at.tzinfo is None:
+                    expires_at = expires_at.replace(tzinfo=timezone.utc)
+                if expires_at <= now or candidate.failed_attempts >= MAX_CODE_ATTEMPTS:
+                    continue
+                if hmac.compare_digest(candidate.token_hash, hash_email_code(user.id, data.code)):
+                    claimed = await db.execute(update(AuthToken).where(
+                        AuthToken.id == candidate.id,
+                        AuthToken.used_at.is_(None),
+                        AuthToken.expires_at > now,
+                        AuthToken.failed_attempts < MAX_CODE_ATTEMPTS,
+                    ).values(used_at=now).execution_options(synchronize_session=False))
+                    if claimed.rowcount != 1:
+                        break
+                    user.email_verified_at = now
+                    await db.commit()
+                    return {"success": True, "message": "Email verified successfully."}
+            # Count misses in the database so restarts and additional workers
+            # do not reset the per-code guessing limit. Resends issue a new code.
+            active_ids = [candidate.id for candidate in latest.values()
+                          if (candidate.expires_at if candidate.expires_at.tzinfo else
+                              candidate.expires_at.replace(tzinfo=timezone.utc)) > now]
+            if active_ids:
+                await db.execute(update(AuthToken).where(
+                    AuthToken.id.in_(active_ids),
+                    AuthToken.used_at.is_(None),
+                    AuthToken.failed_attempts < MAX_CODE_ATTEMPTS,
+                ).values(failed_attempts=AuthToken.failed_attempts + 1).execution_options(synchronize_session=False))
+                await db.commit()
+        raise HTTPException(status_code=400, detail="Verification code is invalid or expired.")
+
+    if not data.token:
+        raise HTTPException(status_code=400, detail="Email and six-digit code are required.")
+
+    # Transitional support for links issued before the code rollout.
     token = await _find_token(db, data.token, "email_verification")
     if not token:
         raise HTTPException(status_code=400, detail="Verification link is invalid or expired.")
@@ -293,7 +372,8 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
             return {"success": True, "message": "Email already verified."}
         raise HTTPException(status_code=400, detail="Verification link has already been used.")
 
-    if token.expires_at < _now():
+    expires_at = token.expires_at if token.expires_at.tzinfo else token.expires_at.replace(tzinfo=timezone.utc)
+    if expires_at < _now():
         raise HTTPException(status_code=400, detail="Verification link has expired.")
 
     if not user:
@@ -308,11 +388,11 @@ async def verify_email(data: VerifyEmailRequest, db: AsyncSession = Depends(get_
 @router.post("/resend-verification")
 async def resend_verification(data: ResendVerificationRequest, db: AsyncSession = Depends(get_db)):
     # Single, identical response for every outcome to prevent email enumeration.
-    message = "If the account exists and is not verified, a verification email has been sent."
+    message = "If the account exists and is not verified, a verification code has been sent."
 
     email = data.email.strip()
     users = (await db.execute(
-        select(User).where(User.email == email, User.is_active == True)
+        select(User).where(func.lower(User.email) == email.lower(), User.is_active == True)
     )).scalars().all()
 
     unverified = [u for u in users if u.email_verified_at is None]
@@ -329,10 +409,10 @@ async def resend_verification(data: ResendVerificationRequest, db: AsyncSession 
         await _invalidate_tokens(db, u.id, "email_verification")
 
     target = unverified[0]
-    token = await _create_token(db, target.id, "email_verification")
+    code = await issue_email_code(db, target.id)
     await db.commit()
 
-    sent = await send_verification_email(target.email, token)
+    sent = await send_verification_email(target.email, code)
     if not sent:
         # Log a safe summary without leaking whether the account exists.
         logger.warning("Verification email could not be sent (send failure)")
@@ -387,7 +467,7 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
     if not user:
         raise HTTPException(status_code=400, detail="Reset link is invalid or expired.")
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await run_password_operation(hash_password, data.new_password)
     user.auth_version = (user.auth_version or 0) + 1
     await _invalidate_tokens(db, user.id, "password_reset")
     token.used_at = _now()
@@ -402,16 +482,22 @@ async def change_password(
     db: AsyncSession = Depends(get_db),
     user: User = Depends(require_auth),
 ):
+    failure_key = f"change-password:{user.id}"
+    if login_locked(failure_key):
+        raise HTTPException(status_code=429, detail="Too many password attempts. Please try again later.", headers={"Retry-After": "300"})
     if len(data.new_password) < 8:
         raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
-    if not verify_password(data.current_password, user.password_hash):
+    if not await run_password_operation(verify_password, data.current_password, user.password_hash):
+        record_login_failure(failure_key)
         raise HTTPException(status_code=400, detail="Current password is incorrect")
+
+    clear_login_failures(failure_key)
 
     if data.current_password == data.new_password:
         raise HTTPException(status_code=400, detail="New password must be different from the current password")
 
-    user.password_hash = hash_password(data.new_password)
+    user.password_hash = await run_password_operation(hash_password, data.new_password)
     user.auth_version = (user.auth_version or 0) + 1
     await db.commit()
 

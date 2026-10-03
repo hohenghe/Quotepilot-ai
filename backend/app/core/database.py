@@ -159,6 +159,7 @@ def _expected_columns() -> dict[str, list[tuple[str, str, str | None]]]:
             ("token_type", "TEXT NOT NULL", None),
             ("expires_at", "TIMESTAMPTZ NOT NULL", None),
             ("used_at", "TIMESTAMPTZ", None),
+            ("failed_attempts", "INTEGER NOT NULL DEFAULT 0", None),
             ("created_at", "TIMESTAMPTZ DEFAULT NOW()", None),
         ],
         "seller_wechat_accounts": [

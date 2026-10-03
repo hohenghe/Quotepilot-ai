@@ -6,8 +6,8 @@ from app.core.database import Base
 class AuthToken(Base):
     """One-time tokens for email verification and password reset.
 
-    Only the SHA-256 hash of the token is stored; the raw token is never
-    persisted and is only sent to the user by email.
+    Only a digest is stored: SHA-256 for reset links and a keyed HMAC for
+    email verification codes. Raw values are never persisted.
     """
 
     __tablename__ = "auth_tokens"
@@ -18,4 +18,5 @@ class AuthToken(Base):
     token_type = Column(String(30), nullable=False, index=True)  # email_verification | password_reset
     expires_at = Column(DateTime(timezone=True), nullable=False)
     used_at = Column(DateTime(timezone=True), nullable=True)
+    failed_attempts = Column(Integer, nullable=False, default=0, server_default="0")
     created_at = Column(DateTime(timezone=True), server_default=func.now())

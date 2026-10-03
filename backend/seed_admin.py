@@ -5,6 +5,7 @@ from app.core.config import settings, is_production
 from app.core.database import async_session
 from app.models.user import User
 from app.core.security import hash_password
+from app.core.auth_protection import run_password_operation
 from sqlalchemy import select
 
 logger = logging.getLogger(__name__)
@@ -56,7 +57,7 @@ async def create_admin():
 
         admin = User(
             email=email,
-            password_hash=hash_password(password),
+            password_hash=await run_password_operation(hash_password, password),
             role="admin",
             name="Administrator",
             country="CN",
@@ -96,7 +97,7 @@ async def create_test_accounts():
                 continue
             db.add(User(
                 email=acc["email"],
-                password_hash=hash_password(acc["password"]),
+                password_hash=await run_password_operation(hash_password, acc["password"]),
                 role=acc["role"],
                 name=acc["name"],
                 country=acc["country"],

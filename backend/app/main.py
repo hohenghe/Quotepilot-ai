@@ -5,7 +5,8 @@ Main application entry point.
 import asyncio
 import logging
 from contextlib import asynccontextmanager
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import DBAPIError, OperationalError
 
@@ -13,6 +14,9 @@ from app.core.config import get_cors_origins, is_production
 from app.services.storage import validate_r2_config
 from app.core.database import init_db
 from app.core.auth import require_admin
+from app.core.ratelimit import get_client_ip, rate_exceeded
+from app.core.config import settings
+from app.core.auth_protection import auth_request_limited
 from app.models.user import User
 from app.api.products import router as products_router
 from app.api.inquiries import router as inquiries_router
@@ -262,6 +266,23 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def protect_api_requests(request: Request, call_next):
+    path = request.url.path
+    if not path.startswith("/api/") or path == "/api/health":
+        return await call_next(request)
+    client_ip = get_client_ip(request)
+    if rate_exceeded(f"api:{client_ip}", settings.API_IP_RATE) or (
+        request.method == "POST" and auth_request_limited(path, client_ip)
+    ):
+        return JSONResponse(
+            status_code=429,
+            content={"detail": "Too many requests. Please try again later."},
+            headers={"Retry-After": "60"},
+        )
+    return await call_next(request)
 
 app.include_router(products_router)
 app.include_router(inquiries_router)

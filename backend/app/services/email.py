@@ -53,22 +53,20 @@ async def _send_transactional_email(
     return False
 
 
-async def send_verification_email(to_email: str, token: str) -> bool:
-    link = f"{settings.FRONTEND_URL.rstrip('/')}/verify-email?token={token}"
-    subject = "Verify your QuotePilot email"
+async def send_verification_email(to_email: str, code: str) -> bool:
+    subject = "Your QuotePilot verification code"
     text = (
         "Welcome to QuotePilot.\n\n"
-        "Please verify your email address by clicking the link below:\n\n"
-        f"{link}\n"
+        f"Your email verification code is: {code}\n\n"
+        "Enter this code in QuotePilot within 5 minutes. "
+        "If you did not request it, you can ignore this email.\n"
     )
     html = (
         "<p style=\"font-family:Arial,sans-serif\">Welcome to QuotePilot.</p>"
-        "<p style=\"font-family:Arial,sans-serif\">Please verify your email address.</p>"
-        f'<p><a href="{link}" style="background-color:#2563EB;color:#ffffff;'
-        'padding:10px 18px;text-decoration:none;border-radius:6px;'
-        'font-family:Arial,sans-serif">Verify Email</a></p>'
-        f'<p style="font-family:Arial,sans-serif;font-size:12px;color:#64748b">'
-        f'If the button does not work, copy and paste this link into your browser:<br>{link}</p>'
+        '<p style="font-family:Arial,sans-serif">Your email verification code is:</p>'
+        f'<p style="font-family:Arial,sans-serif;font-size:28px;letter-spacing:6px"><strong>{code}</strong></p>'
+        '<p style="font-family:Arial,sans-serif;font-size:12px;color:#64748b">'
+        'Enter this code in QuotePilot within 5 minutes. If you did not request it, ignore this email.</p>'
     )
     return await _send_transactional_email(to_email, subject, html, text)
 

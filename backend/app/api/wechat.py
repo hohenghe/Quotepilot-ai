@@ -9,7 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from sqlalchemy import select, or_, func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
-from pydantic import BaseModel, StrictBool
+from pydantic import BaseModel, Field, StrictBool
 
 from app.core.database import get_db
 from app.core.config import settings
@@ -18,15 +18,17 @@ from app.core.security import (
     verify_password,
     generate_uid,
     hash_password,
-    generate_token,
-    hash_token,
+    password_needs_rehash,
+)
+from app.core.auth_protection import (
+    clear_login_failures, login_locked, record_login_failure, run_password_operation,
 )
 from app.models.user import User
-from app.models.auth_token import AuthToken
 from app.models.seller_wechat_account import SellerWechatAccount
 from app.models.user_phone import UserPhone
 from app.services.wechat import code_to_session, get_phone_number, warm_phone_access_token, WechatLoginError
 from app.services.email import send_verification_email
+from app.services.email_verification import issue_email_code
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/auth", tags=["wechat-auth"])
@@ -69,8 +71,8 @@ def _decode_wechat_session_token(token: str) -> dict:
 
 
 class WechatBindRequest(BaseModel):
-    identifier: str
-    password: str
+    identifier: str = Field(max_length=300)
+    password: str = Field(max_length=1024)
     code: str | None = None
     phone_code: str | None = None
     choice_token: str | None = None
@@ -85,7 +87,7 @@ class WechatRegisterRequest(BaseModel):
     code: str
     phone_code: str
     email: str | None = None
-    password: str
+    password: str = Field(max_length=1024)
     name: str | None = None
     country: str
     # Kept only for compatibility with old clients. For WeChat registration,
@@ -435,17 +437,17 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
     if existing_bind.scalar_one_or_none():
         raise HTTPException(status_code=409, detail="This WeChat account is already bound to a seller")
 
-    email = data.email.strip() if data.email else None
+    email = data.email.strip().lower() if data.email else None
     if email:
         existing_user = await db.execute(
-            select(User).where(User.email == email, User.role == "seller")
+            select(User).where(func.lower(User.email) == email, User.role == "seller")
         )
         if existing_user.scalar_one_or_none():
             raise HTTPException(status_code=400, detail="An account with this role already exists for this email")
 
     user = User(
         email=email,
-        password_hash=hash_password(data.password),
+        password_hash=await run_password_operation(hash_password, data.password),
         role="seller",
         supports_distribution=data.supports_distribution,
         name=data.name.strip(),
@@ -470,31 +472,27 @@ async def wechat_register(data: WechatRegisterRequest, db: AsyncSession = Depend
     if not user.email:
         return {"success": True, "message": "Registration successful. You can now sign in with WeChat."}
 
-    raw = generate_token()
-    db.add(AuthToken(
-        user_id=user.id,
-        token_hash=hash_token(raw),
-        token_type="email_verification",
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=24),
-    ))
+    code = await issue_email_code(db, user.id)
     await db.commit()
 
-    sent = await send_verification_email(user.email, raw)
+    sent = await send_verification_email(user.email, code)
     if not sent:
         raise HTTPException(
             status_code=500,
-            detail="Account created, but we could not send the verification email. "
-                   "Please use 'Resend verification email' to try again.",
+            detail="Account created, but we could not send the verification code. "
+                   "Please request another code to try again.",
         )
 
     return {
         "success": True,
-        "message": "Registration successful. Please check your email to verify your account.",
+        "message": "Registration successful. Enter the six-digit code sent to your email.",
     }
 
 
 @router.post("/wechat-bind", response_model=WechatAuthResponse)
 async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db)):
+    if login_locked(data.identifier):
+        raise HTTPException(status_code=429, detail="Too many login attempts. Please try again later.", headers={"Retry-After": "300"})
     try:
         if data.choice_token:
             if data.code or data.phone_code:
@@ -526,10 +524,11 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
         )
     )
     candidates = result.scalars().all()
-    matched = [u for u in candidates if verify_password(data.password, u.password_hash)]
+    matched = [u for u in candidates if await run_password_operation(verify_password, data.password, u.password_hash)]
     user = next((u for u in matched if u.role == "seller"), None)
 
     if user is None:
+        record_login_failure(data.identifier)
         raise HTTPException(status_code=401, detail="Invalid credentials")
 
     if getattr(user, "restricted_port", None) not in (None, "seller"):
@@ -537,6 +536,10 @@ async def wechat_bind(data: WechatBindRequest, db: AsyncSession = Depends(get_db
 
     if user.email_verified_at is None:
         raise HTTPException(status_code=403, detail="Please verify your email before binding.")
+
+    clear_login_failures(data.identifier)
+    if password_needs_rehash(user.password_hash):
+        user.password_hash = await run_password_operation(hash_password, data.password)
 
     existing = await db.execute(
         select(SellerWechatAccount).where(SellerWechatAccount.openid == openid)

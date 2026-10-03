@@ -7,6 +7,7 @@ flood (the primary DoS vector for this endpoint).
 """
 import asyncio
 import time
+import ipaddress
 from collections import deque
 from typing import Optional
 
@@ -26,24 +27,31 @@ _analyze_semaphore: Optional[asyncio.Semaphore] = None
 
 
 def get_client_ip(request) -> str:
-    """Extract the real client IP, accounting for reverse proxies (Railway /
-    Cloudflare). Uses the leftmost X-Forwarded-For entry (the original client
-    per the de-facto spec). Falls back to the direct TCP peer.
+    """Use forwarding headers only when the immediate peer is trusted."""
+    from app.core.config import settings
 
-    Note: a determined attacker can rotate/spoof X-Forwarded-For to bypass
-    per-IP limits. This is mitigated by the global concurrency cap, which is
-    IP-independent. The per-IP limit primarily stops a single script on a
-    single connection from flooding."""
-    xff = request.headers.get("x-forwarded-for")
-    if xff:
-        # Leftmost is the original client; rightmost is the closest proxy.
-        first = xff.split(",")[0].strip()
-        if first:
-            return first
-    cf_ip = request.headers.get("cf-connecting-ip")
-    if cf_ip:
-        return cf_ip.strip()
-    return request.client.host if request.client else "unknown"
+    peer = request.client.host if request.client else "unknown"
+    try:
+        peer_ip = ipaddress.ip_address(peer)
+    except ValueError:
+        return peer
+    networks = []
+    for cidr in settings.TRUSTED_PROXY_CIDRS.split(","):
+        if cidr.strip():
+            networks.append(ipaddress.ip_network(cidr.strip(), strict=False))
+    if not any(peer_ip in network for network in networks):
+        return peer
+    # Walk from the trusted peer towards the client; choose the first
+    # untrusted address so user-supplied XFF prefixes cannot rotate keys.
+    xff = request.headers.get("x-forwarded-for", "")
+    for value in reversed(xff.split(",")):
+        try:
+            candidate = ipaddress.ip_address(value.strip())
+        except ValueError:
+            continue
+        if not any(candidate in network for network in networks):
+            return str(candidate)
+    return peer
 
 
 def rate_exceeded(key: str, limit: int) -> bool:

@@ -392,6 +392,8 @@ const zhCN = {
     verifyInvalid: "验证码无效或已过期。",
     resetInvalid: "重置链接无效或已过期。",
     waitCooldown: "请稍后再请求发送邮件。",
+    humanVerificationRequired: "请先完成人机验证。",
+    humanVerificationLoadFailed: "人机验证加载失败，请刷新页面重试。",
   },
   country: {
     china: "中国",

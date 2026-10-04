@@ -94,6 +94,11 @@ class Settings(BaseSettings):
     # Empty means use the direct TCP peer and ignore untrusted IP headers.
     TRUSTED_PROXY_CIDRS: str = ""
 
+    # Cloudflare Turnstile for browser forms. Leave empty until both frontend
+    # site key and backend secret are configured for the same widget.
+    TURNSTILE_SECRET_KEY: str = ""
+    TURNSTILE_ALLOWED_HOSTNAMES: str = ""
+
     # Admin account provisioning (read from env; no hardcoded production creds).
     # In production, if ADMIN_PASSWORD is unset, admin creation is skipped with a
     # logged warning (fail-safe: no default password is ever used in prod).

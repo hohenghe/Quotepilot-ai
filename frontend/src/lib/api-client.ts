@@ -201,6 +201,7 @@ export async function analyzeAndMatch(
   rawMessage: string,
   customerName?: string,
   customProducts = false,
+  turnstileToken?: string,
 ): Promise<FullAnalysisResult> {
   const data = await request<ApiInquiryAnalysisResult>("/api/inquiries/analyze", {
     method: "POST",
@@ -210,6 +211,7 @@ export async function analyzeAndMatch(
       customer_name: customerName || null,
       customer_email: null,
       customer_company: null,
+      turnstile_token: turnstileToken || null,
     }),
   })
 
@@ -287,17 +289,17 @@ interface AuthResponse {
   uid: string | null
 }
 
-export async function login(identifier: string, password: string, role?: string): Promise<AuthResponse> {
+export async function login(identifier: string, password: string, role?: string, turnstileToken?: string): Promise<AuthResponse> {
   return await request<AuthResponse>("/api/auth/login", {
     method: "POST",
-    body: JSON.stringify({ identifier, password, role: role || null }),
+    body: JSON.stringify({ identifier, password, role: role || null, turnstile_token: turnstileToken || null }),
   })
 }
 
-export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer", supportsDistribution?: boolean): Promise<{ ok: boolean; message: string }> {
+export async function register(email: string, password: string, name: string, country: string, phone: string, role: "buyer" | "seller" = "buyer", supportsDistribution?: boolean, turnstileToken?: string): Promise<{ ok: boolean; message: string }> {
   const data = await request<{ success: boolean; message: string }>("/api/auth/register", {
     method: "POST",
-    body: JSON.stringify({ email, password, name, country, phone, role, supports_distribution: supportsDistribution }),
+    body: JSON.stringify({ email, password, name, country, phone, role, supports_distribution: supportsDistribution, turnstile_token: turnstileToken || null }),
   })
   return { ok: !!data.success, message: data.message || "" }
 }
@@ -353,8 +355,8 @@ export async function resendVerification(email: string): Promise<AuthResult> {
   return await postAuth("/api/auth/resend-verification", { email })
 }
 
-export async function forgotPassword(email: string): Promise<AuthResult> {
-  return await postAuth("/api/auth/forgot-password", { email })
+export async function forgotPassword(email: string, turnstileToken?: string): Promise<AuthResult> {
+  return await postAuth("/api/auth/forgot-password", { email, turnstile_token: turnstileToken || null })
 }
 
 export async function resetPassword(token: string, newPassword: string): Promise<AuthResult> {

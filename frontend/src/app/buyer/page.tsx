@@ -16,6 +16,8 @@ import { useToast } from "@/components/Toast"
 import type { AuthFormData, AuthSubmitResult } from "@/components/AuthForm"
 import type { FullAnalysisResult, BuyerInquiryItem, SavedProductItem } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
+import TurnstileWidget, { turnstileEnabled } from "@/components/TurnstileWidget"
+import type { TurnstileHandle } from "@/components/TurnstileWidget"
 
 export default function BuyerPage() {
   const { t } = useT()
@@ -27,6 +29,8 @@ export default function BuyerPage() {
   const [sentInquiries, setSentInquiries] = useState<Set<number>>(new Set())
   const [sendingId, setSendingId] = useState<number | null>(null)
   const inquiryOperation = useRef(false)
+  const inquiryTurnstileRef = useRef<TurnstileHandle>(null)
+  const [inquiryTurnstileToken, setInquiryTurnstileToken] = useState<string | null>(null)
   const [analyzedMessage, setAnalyzedMessage] = useState("")
   const [customProducts, setCustomProducts] = useState(false)
   const [customResults, setCustomResults] = useState(false)
@@ -106,16 +110,16 @@ export default function BuyerPage() {
     setAuthError(null)
     try {
       if (authMode === "register") {
-        await register(data.email, data.password, data.name, data.country, data.phone, "buyer")
+        await register(data.email, data.password, data.name, data.country, data.phone, "buyer", undefined, data.turnstileToken)
         return { type: "registered", email: data.email }
       }
-      const res = await login(data.email, data.password, "buyer")
+      const res = await login(data.email, data.password, "buyer", data.turnstileToken)
       saveAuth(res.token, {
         restricted_port: res.restricted_port, user_id: res.user_id, email: res.email, role: res.role, name: res.name,
         store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country || data.country, phone: res.phone || data.phone, uid: res.uid,
       })
     } catch (e: any) {
-      setAuthError(e.message || "Authentication failed")
+      setAuthError(e.message?.includes("Human verification") ? t.auth.humanVerificationRequired : e.message || "Authentication failed")
     } finally {
       setAuthLoading(false)
     }
@@ -123,23 +127,30 @@ export default function BuyerPage() {
 
   const handleAnalyze = async () => {
     if (!rawMessage.trim() || inquiryOperation.current) return
+    if (isGuest && turnstileEnabled && !inquiryTurnstileToken) {
+      setAnalysisError(t.auth.humanVerificationRequired)
+      return
+    }
     inquiryOperation.current = true
     const message = rawMessage.trim()
     setAnalyzing(true)
     setResult(null)
     setAnalysisError(null)
     try {
-      const res = await analyzeAndMatch(message, user?.email || undefined, customProducts)
+      const res = await analyzeAndMatch(message, user?.email || undefined, customProducts,
+        isGuest ? inquiryTurnstileToken || undefined : undefined)
       setCustomResults(customProducts)
       setAnalyzedMessage(message)
       setSentInquiries(new Set())
       setResult(res)
     } catch (e: any) {
-      setAnalysisError(e.message || t.common.somethingWentWrong)
-      toast.push("error", e.message || t.common.somethingWentWrong)
+      const message = e.message?.includes("Human verification") ? t.auth.humanVerificationRequired : e.message || t.common.somethingWentWrong
+      setAnalysisError(message)
+      toast.push("error", message)
     } finally {
       setAnalyzing(false)
       inquiryOperation.current = false
+      if (isGuest) inquiryTurnstileRef.current?.reset()
     }
   }
 
@@ -332,6 +343,8 @@ export default function BuyerPage() {
                     onChange={e => setCustomProducts(e.target.checked)} className="h-4 w-4 accent-brand-600" />
                   {t.buyer.customProducts}
                 </label>
+                {isGuest && Boolean(rawMessage.trim()) && <TurnstileWidget ref={inquiryTurnstileRef} action="web_inquiry"
+                  onTokenChange={setInquiryTurnstileToken} errorMessage={t.auth.humanVerificationLoadFailed} />}
                 <button
                   className="btn-primary w-full mt-4 py-2.5"
                   onClick={handleAnalyze}

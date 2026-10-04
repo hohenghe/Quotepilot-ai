@@ -24,3 +24,25 @@ the in-process counters alone are insufficient for distributed abuse.
 Observe 429 rates and legitimate request volume before changing
 `API_IP_RATE` or edge rules. The password hash parameters should also be
 benchmarked on the deployed CPU and memory limit before increasing their cost.
+
+## Browser human verification
+
+Cloudflare Turnstile is available for web login, registration, password-recovery
+requests, and anonymous inquiry analysis. Configure the widget's public site key
+as `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in Vercel, and its matching private key as
+`TURNSTILE_SECRET_KEY` in Northflank. Set `TURNSTILE_ALLOWED_HOSTNAMES` to the
+comma-separated widget hostnames (for example `zhermai.com,www.zhermai.com`),
+or leave it empty to derive them from allowed frontend origins.
+Only enable the keys as a pair. Siteverify checks the token, action and hostname
+before processing these requests; an unavailable verification service fails
+closed. The widget is loaded only on affected web forms.
+Cloudflare's public dummy key pair can be used in local development; the test
+secret bypasses hostname/action checks only outside `ENV=production`.
+
+The mini program shares the password endpoints and cannot render a browser
+Turnstile widget. Those endpoints require a token for allowed browser origins
+but still accept non-browser callers so the mini program works. Therefore,
+scripts that omit or forge `Origin` can bypass the challenge on the shared
+password endpoints. Keep the existing API rate limits and put the API behind
+an edge WAF for stronger protection. Anonymous inquiry analysis has no mini
+program caller and requires a valid token from every guest when enabled.

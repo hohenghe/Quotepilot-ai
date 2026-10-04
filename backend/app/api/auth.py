@@ -24,6 +24,7 @@ from app.models.user import User
 from app.models.auth_token import AuthToken
 from app.services.email import send_verification_email, send_password_reset_email
 from app.services.email_verification import issue_email_code, MAX_CODE_ATTEMPTS
+from app.services.turnstile import verify_turnstile
 from app.services.wechat import get_phone_number, WechatLoginError
 from app.api.media import require_media_url
 
@@ -45,6 +46,7 @@ class RegisterRequest(BaseModel):
     country: str
     phone: str
     role: str = "buyer"
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class WechatPhoneRequest(BaseModel):
@@ -55,6 +57,7 @@ class LoginRequest(BaseModel):
     identifier: str = Field(max_length=300)
     password: str = Field(max_length=1024)
     role: str | None = None
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class UpdateProfileRequest(BaseModel):
@@ -78,6 +81,7 @@ class VerifyEmailRequest(BaseModel):
 
 class ForgotPasswordRequest(BaseModel):
     email: str
+    turnstile_token: str | None = Field(default=None, max_length=2048)
 
 
 class ResetPasswordRequest(BaseModel):
@@ -166,7 +170,7 @@ async def _recently_requested(db: AsyncSession, user_ids: list[int], token_type:
 
 
 @router.post("/register")
-async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
+async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db), request: Request = None):
     if data.role == "seller" and data.supports_distribution is None:
         raise HTTPException(status_code=422, detail="请选择是否支持铺货")
     if len(data.password) < 8:
@@ -180,6 +184,8 @@ async def register(data: RegisterRequest, db: AsyncSession = Depends(get_db)):
 
     if data.role == "seller" and (not data.name or not data.name.strip()):
         raise HTTPException(status_code=400, detail="Company name is required for sellers")
+
+    await verify_turnstile(request, data.turnstile_token, "web_register")
 
     email = data.email.strip().lower() if data.email else None
     if email:
@@ -242,9 +248,10 @@ async def get_wechat_phone(data: WechatPhoneRequest):
 
 
 @router.post("/login", response_model=AuthResponse)
-async def login(data: LoginRequest, db: AsyncSession = Depends(get_db)):
+async def login(data: LoginRequest, db: AsyncSession = Depends(get_db), request: Request = None):
     if login_locked(data.identifier):
         raise HTTPException(status_code=429, detail="Too many login attempts. Please try again later.", headers={"Retry-After": "300"})
+    await verify_turnstile(request, data.turnstile_token, "web_login")
     result = await db.execute(
         select(User).where(
             User.is_active == True,
@@ -422,7 +429,8 @@ async def resend_verification(data: ResendVerificationRequest, db: AsyncSession 
 
 
 @router.post("/forgot-password")
-async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db)):
+async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depends(get_db), request: Request = None):
+    await verify_turnstile(request, data.turnstile_token, "web_forgot_password")
     email = data.email.strip()
     users = (await db.execute(
         select(User).where(User.email == email, User.is_active == True)

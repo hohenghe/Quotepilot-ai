@@ -7,6 +7,7 @@ from app.core.database import get_db
 from app.core.auth import require_admin, require_auth, require_seller, require_buyer, get_current_user
 from app.core.config import settings
 from app.core.ratelimit import get_client_ip, rate_exceeded, get_analyze_semaphore
+from app.services.turnstile import verify_turnstile
 from app.models.inquiry import Inquiry, InquiryAnalysis
 from app.models.product import Product
 from app.models.user import User
@@ -125,6 +126,9 @@ async def analyze_and_match(
         rl_limit = settings.ANALYZE_ANON_RATE
     if rate_exceeded(rl_key, rl_limit):
         raise HTTPException(status_code=429, detail="Too many requests. Please try again later.")
+
+    if not user:
+        await verify_turnstile(request, data.turnstile_token, "web_inquiry", require_for_all=True)
 
     async with get_analyze_semaphore():
         # ── 1. AI analysis (no DB transaction open) ──

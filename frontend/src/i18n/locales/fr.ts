@@ -395,6 +395,8 @@ const fr = {
     verifyInvalid: "Le code de vérification est invalide ou a expiré.",
     resetInvalid: "Le lien de réinitialisation est invalide ou a expiré.",
     waitCooldown: "Veuillez patienter avant de demander un autre email.",
+    humanVerificationRequired: "Veuillez d'abord effectuer la vérification humaine.",
+    humanVerificationLoadFailed: "La vérification humaine ne s'est pas chargée. Actualisez la page.",
   },
   country: {
     china: "Chine",

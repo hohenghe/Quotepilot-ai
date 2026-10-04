@@ -395,6 +395,8 @@ const es = {
     verifyInvalid: "El código de verificación no es válido o ha caducado.",
     resetInvalid: "El enlace de restablecimiento no es válido o ha caducado.",
     waitCooldown: "Espere antes de solicitar otro correo.",
+    humanVerificationRequired: "Complete primero la verificación humana.",
+    humanVerificationLoadFailed: "No se pudo cargar la verificación humana. Actualice la página.",
   },
   country: {
     china: "China",

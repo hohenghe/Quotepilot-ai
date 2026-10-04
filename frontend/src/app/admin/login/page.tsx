@@ -18,14 +18,14 @@ export default function AdminLoginPage() {
     setLoading(true)
     setError(null)
     try {
-      const res = await login(data.email, data.password, "admin")
+      const res = await login(data.email, data.password, "admin", data.turnstileToken)
       saveAuth(res.token, {
         restricted_port: res.restricted_port, user_id: res.user_id, email: res.email, role: res.role, name: res.name,
         store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country, phone: res.phone, uid: res.uid,
       })
       router.push("/admin")
     } catch (e: any) {
-      setError("Invalid credentials")
+      setError(e.message?.includes("Human verification") ? t.auth.humanVerificationRequired : "Invalid credentials")
     } finally {
       setLoading(false)
     }

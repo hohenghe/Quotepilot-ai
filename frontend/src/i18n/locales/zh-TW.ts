@@ -392,6 +392,8 @@ const zhTW = {
     verifyInvalid: "驗證碼無效或已過期。",
     resetInvalid: "重設連結無效或已過期。",
     waitCooldown: "請稍後再請求發送郵件。",
+    humanVerificationRequired: "請先完成人機驗證。",
+    humanVerificationLoadFailed: "人機驗證載入失敗，請重新整理頁面再試。",
   },
   country: {
     china: "中國",

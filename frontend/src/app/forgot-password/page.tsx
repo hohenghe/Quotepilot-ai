@@ -1,12 +1,14 @@
 "use client"
 
-import { useState } from "react"
+import { useRef, useState } from "react"
 import Link from "next/link"
 import { KeyRound } from "lucide-react"
 import { forgotPassword } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import BrandLogo from "@/components/BrandLogo"
+import TurnstileWidget, { turnstileEnabled } from "@/components/TurnstileWidget"
+import type { TurnstileHandle } from "@/components/TurnstileWidget"
 
 export default function ForgotPasswordPage() {
   const { t } = useT()
@@ -14,17 +16,25 @@ export default function ForgotPasswordPage() {
   const [loading, setLoading] = useState(false)
   const [sent, setSent] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   const handleSubmit = async () => {
     if (!email.trim()) return
+    if (turnstileEnabled && !turnstileToken) {
+      setError(t.auth.humanVerificationRequired)
+      return
+    }
     setLoading(true)
     setError(null)
-    const res = await forgotPassword(email.trim())
+    const res = await forgotPassword(email.trim(), turnstileToken || undefined)
+    turnstileRef.current?.reset()
     setLoading(false)
     if (res.success) {
       setSent(true)
     } else {
-      setError(res.status === 429 ? t.auth.waitCooldown : t.common.somethingWentWrong)
+      setError(res.status === 429 ? t.auth.waitCooldown
+        : res.status === 403 ? t.auth.humanVerificationRequired : t.common.somethingWentWrong)
     }
   }
 
@@ -67,6 +77,8 @@ export default function ForgotPasswordPage() {
                 placeholder="you@company.com"
               />
             </div>
+            <TurnstileWidget ref={turnstileRef} action="web_forgot_password"
+              onTokenChange={setTurnstileToken} errorMessage={t.auth.humanVerificationLoadFailed} />
             <button
               className="btn-primary w-full justify-center py-3 text-base"
               onClick={handleSubmit}

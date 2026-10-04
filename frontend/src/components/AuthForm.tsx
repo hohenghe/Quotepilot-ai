@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Eye, EyeOff, MailCheck } from "lucide-react"
 import Link from "next/link"
 import { COUNTRIES } from "@/lib/countries"
@@ -9,6 +9,8 @@ import { resendVerification, verifyEmail } from "@/lib/api-client"
 import { useT } from "@/i18n/I18nProvider"
 import LanguageSwitcher from "@/components/LanguageSwitcher"
 import BrandLogo from "@/components/BrandLogo"
+import TurnstileWidget, { turnstileEnabled } from "@/components/TurnstileWidget"
+import type { TurnstileHandle } from "@/components/TurnstileWidget"
 
 export interface AuthFormData {
   supportsDistribution?: boolean
@@ -17,6 +19,7 @@ export interface AuthFormData {
   name: string
   country: string
   phone: string
+  turnstileToken?: string
 }
 
 export type AuthSubmitResult = void | { type: "registered"; email: string }
@@ -42,6 +45,8 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
   const [supportsDistribution, setSupportsDistribution] = useState<boolean | null>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [localError, setLocalError] = useState<string | null>(null)
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const turnstileRef = useRef<TurnstileHandle>(null)
 
   const [registeredEmail, setRegisteredEmail] = useState<string | null>(null)
   const [resending, setResending] = useState(false)
@@ -62,7 +67,15 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
     setLocalError(null)
     if (mode === "login") {
       if (!email || !password) return
-      await onSubmit({ email, password, name, country, phone })
+      if (turnstileEnabled && !turnstileToken) {
+        setLocalError(t.auth.humanVerificationRequired)
+        return
+      }
+      try {
+        await onSubmit({ email, password, name, country, phone, turnstileToken: turnstileToken || undefined })
+      } finally {
+        turnstileRef.current?.reset()
+      }
       return
     }
     if (!email || !password) return
@@ -86,7 +99,17 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
       setLocalError(t.auth.distributionRequired)
       return
     }
-    const result = await onSubmit({ email, password, name, country, phone, supportsDistribution: supportsDistribution ?? undefined })
+    if (turnstileEnabled && !turnstileToken) {
+      setLocalError(t.auth.humanVerificationRequired)
+      return
+    }
+    let result: AuthSubmitResult
+    try {
+      result = await onSubmit({ email, password, name, country, phone,
+        supportsDistribution: supportsDistribution ?? undefined, turnstileToken: turnstileToken || undefined })
+    } finally {
+      turnstileRef.current?.reset()
+    }
     if (result && result.type === "registered") {
       setRegisteredEmail(result.email)
       setResendCooldown(60)
@@ -340,6 +363,9 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
             {t.auth.iAmSeller}
           </Link>
         )}
+
+        <TurnstileWidget ref={turnstileRef} action={mode === "register" ? "web_register" : "web_login"}
+          onTokenChange={setTurnstileToken} errorMessage={t.auth.humanVerificationLoadFailed} />
 
         <button
           className="btn-primary w-full justify-center py-3 text-base"

@@ -20,10 +20,10 @@ export default function SellerLoginPage() {
     setError(null)
     try {
       if (mode === "register") {
-        await register(data.email, data.password, data.name, data.country, data.phone, "seller", data.supportsDistribution)
+        await register(data.email, data.password, data.name, data.country, data.phone, "seller", data.supportsDistribution, data.turnstileToken)
         return { type: "registered", email: data.email }
       }
-      const res = await login(data.email, data.password, "seller")
+      const res = await login(data.email, data.password, "seller", data.turnstileToken)
       if (res.role !== "seller" && res.role !== "admin") {
         logout()
         setError(t.common.accountMismatch)
@@ -35,7 +35,7 @@ export default function SellerLoginPage() {
       })
       router.push("/seller")
     } catch (e: any) {
-      setError(e.message || "Authentication failed")
+      setError(e.message?.includes("Human verification") ? t.auth.humanVerificationRequired : e.message || "Authentication failed")
     } finally {
       setLoading(false)
     }

@@ -395,6 +395,8 @@ const en = {
     verifyInvalid: "Verification code is invalid or expired.",
     resetInvalid: "Reset link is invalid or expired.",
     waitCooldown: "Please wait before requesting another email.",
+    humanVerificationRequired: "Please complete the human verification first.",
+    humanVerificationLoadFailed: "Human verification could not load. Please refresh the page.",
   },
   country: {
     china: "China",

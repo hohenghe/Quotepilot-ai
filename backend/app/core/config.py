@@ -97,7 +97,9 @@ class Settings(BaseSettings):
     # Cloudflare Turnstile for browser forms. Leave empty until both frontend
     # site key and backend secret are configured for the same widget.
     TURNSTILE_SECRET_KEY: str = ""
+    TURNSTILE_SECRET: str = ""  # Cloudflare Spin's environment variable name
     TURNSTILE_ALLOWED_HOSTNAMES: str = ""
+    TURNSTILE_HOSTNAMES: str = ""  # Cloudflare Spin's environment variable name
 
     # Admin account provisioning (read from env; no hardcoded production creds).
     # In production, if ADMIN_PASSWORD is unset, admin creation is skipped with a

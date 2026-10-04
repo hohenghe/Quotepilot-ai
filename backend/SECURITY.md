@@ -30,7 +30,8 @@ benchmarked on the deployed CPU and memory limit before increasing their cost.
 Cloudflare Turnstile is available for web login, registration, password-recovery
 requests, and anonymous inquiry analysis. Configure the widget's public site key
 as `NEXT_PUBLIC_TURNSTILE_SITE_KEY` in Vercel, and its matching private key as
-`TURNSTILE_SECRET_KEY` in Northflank. Set `TURNSTILE_ALLOWED_HOSTNAMES` to the
+`TURNSTILE_SECRET_KEY` (or Cloudflare Spin's `TURNSTILE_SECRET`) in Northflank.
+Set `TURNSTILE_ALLOWED_HOSTNAMES` (or `TURNSTILE_HOSTNAMES`) to the
 comma-separated widget hostnames (for example `zhermai.com,www.zhermai.com`),
 or leave it empty to derive them from allowed frontend origins.
 Only enable the keys as a pair. Siteverify checks the token, action and hostname

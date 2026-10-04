@@ -16,6 +16,25 @@ from app.services.turnstile import verify_turnstile
 
 
 class TurnstileTests(unittest.IsolatedAsyncioTestCase):
+    async def test_spin_environment_variable_names_are_supported(self):
+        request = SimpleNamespace(headers={"origin": "http://localhost:3000"})
+        response = SimpleNamespace(
+            raise_for_status=lambda: None,
+            json=lambda: {"success": True, "action": "web_login", "hostname": "localhost"},
+        )
+        client = SimpleNamespace(post=AsyncMock(return_value=response))
+        with patch.object(settings, "TURNSTILE_SECRET_KEY", ""), \
+             patch.object(settings, "TURNSTILE_SECRET", "spin-secret"), \
+             patch.object(settings, "TURNSTILE_ALLOWED_HOSTNAMES", ""), \
+             patch.object(settings, "TURNSTILE_HOSTNAMES", "localhost"), \
+             patch("app.services.turnstile.get_http_client", return_value=client):
+            with self.assertRaises(HTTPException) as missing:
+                await verify_turnstile(request, None, "web_login")
+            self.assertEqual(missing.exception.status_code, 403)
+            await verify_turnstile(request, "valid-token", "web_login")
+            self.assertEqual(client.post.await_args.kwargs["json"],
+                             {"secret": "spin-secret", "response": "valid-token"})
+
     async def test_siteverify_checks_action_hostname_and_fails_closed(self):
         request = SimpleNamespace(headers={"origin": "http://localhost:3000"})
         response = SimpleNamespace(

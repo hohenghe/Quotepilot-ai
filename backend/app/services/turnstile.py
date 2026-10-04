@@ -17,7 +17,7 @@ _TEST_SECRETS = {
 
 
 def _allowed_hostnames() -> set[str]:
-    configured = settings.TURNSTILE_ALLOWED_HOSTNAMES.strip()
+    configured = (settings.TURNSTILE_ALLOWED_HOSTNAMES or settings.TURNSTILE_HOSTNAMES).strip()
     if configured:
         return {name.strip().lower() for name in configured.split(",") if name.strip()}
     return {urlsplit(origin).hostname.lower() for origin in get_cors_origins()
@@ -38,11 +38,12 @@ async def verify_turnstile(request: Request | None, token: str | None, action: s
     Shared auth endpoints keep supporting the WeChat mini program, which has
     no browser Origin header. Its existing rate limits remain in force.
     """
-    if not settings.TURNSTILE_SECRET_KEY:
+    secret = settings.TURNSTILE_SECRET_KEY or settings.TURNSTILE_SECRET
+    if not secret:
         return
     if not token and not (require_for_all or _browser_origin(request)):
         return
-    if settings.ENV == "production" and settings.TURNSTILE_SECRET_KEY in _TEST_SECRETS:
+    if settings.ENV == "production" and secret in _TEST_SECRETS:
         logger.error("Turnstile test secret configured in production")
         raise HTTPException(status_code=503, detail="Human verification is misconfigured.")
     if not token:
@@ -50,7 +51,7 @@ async def verify_turnstile(request: Request | None, token: str | None, action: s
     try:
         response = await get_http_client().post(
             SITEVERIFY_URL,
-            json={"secret": settings.TURNSTILE_SECRET_KEY, "response": token},
+            json={"secret": secret, "response": token},
             timeout=5.0,
         )
         response.raise_for_status()
@@ -60,7 +61,7 @@ async def verify_turnstile(request: Request | None, token: str | None, action: s
         raise HTTPException(status_code=503, detail="Human verification is temporarily unavailable.")
     if (isinstance(result, dict) and result.get("success") is True
             and settings.ENV != "production"
-            and settings.TURNSTILE_SECRET_KEY in _TEST_SECRETS
+            and secret in _TEST_SECRETS
             and isinstance(result.get("metadata"), dict)
             and result["metadata"].get("result_with_testing_key") is True):
         return

@@ -5,6 +5,7 @@ Run:  python tests/test_vision_unit.py
 import os
 import sys
 import asyncio
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -245,8 +246,10 @@ def test_native_preprocess_fallback():
     from app.core.config import settings
 
     original_path = settings.NATIVE_IMAGE_PREPROCESSOR_PATH
+    original_library = settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY
     try:
         settings.NATIVE_IMAGE_PREPROCESSOR_PATH = "definitely-not-an-executable"
+        settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = "definitely-not-a-library"
         image = Image.new("RGB", (3000, 2000), (20, 40, 60))
         buf = BytesIO()
         image.save(buf, format="JPEG")
@@ -255,6 +258,52 @@ def test_native_preprocess_fallback():
         check("native fallback: Pillow result returned", mime == "image/jpeg" and max(decoded.size) <= 1024)
     finally:
         settings.NATIVE_IMAGE_PREPROCESSOR_PATH = original_path
+        settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = original_library
+
+
+def test_native_preprocess_scope_and_invalid_output():
+    """Only large JPEGs take the native path; bad output uses Pillow."""
+    from io import BytesIO
+    from types import SimpleNamespace
+    from PIL import Image
+    from app.core.config import settings
+
+    image = Image.new("RGB", (4000, 3000), (30, 80, 120))
+    jpeg = BytesIO()
+    image.save(jpeg, format="JPEG")
+    png = BytesIO()
+    image.save(png, format="PNG")
+
+    original_path = settings.NATIVE_IMAGE_PREPROCESSOR_PATH
+    original_library = settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY
+    try:
+        settings.NATIVE_IMAGE_PREPROCESSOR_PATH = ""
+        settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = "mock-native-library"
+        with patch.object(vision, "_call_native_image_library", return_value=b"not a JPEG") as native_call:
+            output, mime = preprocess_image(jpeg.getvalue(), "image/jpeg", 1024)
+            check("invalid native output: Pillow fallback", mime == "image/jpeg" and
+                  Image.open(BytesIO(output)).size == (1024, 768))
+            check("large JPEG: native attempted", native_call.call_count == 1)
+            preprocess_image(png.getvalue(), "image/png", 1024)
+            check("large PNG: native skipped", native_call.call_count == 1)
+            preprocess_image(jpeg.getvalue(), "image/jpeg", 4096)
+            check("small JPEG: native skipped", native_call.call_count == 1)
+    finally:
+        settings.NATIVE_IMAGE_PREPROCESSOR_PATH = original_path
+        settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = original_library
+
+    # The pre-existing subprocess helper still receives transformed PNGs.
+    try:
+        settings.NATIVE_IMAGE_PREPROCESSOR_PATH = "mock-native-helper"
+        settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = ""
+        with patch.object(vision.subprocess, "run", return_value=SimpleNamespace(
+            returncode=1, stdout=b"", stderr=b"test failure",
+        )) as legacy_call:
+            preprocess_image(png.getvalue(), "image/png", 1024)
+            check("legacy native helper: PNG still attempted", legacy_call.call_count == 1)
+    finally:
+        settings.NATIVE_IMAGE_PREPROCESSOR_PATH = original_path
+        settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = original_library
 
 
 def test_pipeline_malformed():
@@ -295,6 +344,7 @@ if __name__ == "__main__":
     test_preprocess()
     test_preprocess_extra()
     test_native_preprocess_fallback()
+    test_native_preprocess_scope_and_invalid_output()
     test_pipeline()
     test_pipeline_malformed()
     passed = sum(1 for _, ok in results if ok)

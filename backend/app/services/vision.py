@@ -8,6 +8,7 @@ This module never touches the database and never returns provider secrets.
 """
 import base64
 import asyncio
+import ctypes
 import io
 import json
 import logging
@@ -15,7 +16,8 @@ import re
 import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor
-from functools import partial
+from functools import lru_cache, partial
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -34,46 +36,97 @@ _IMAGE_PREPROCESS_EXECUTOR = ThreadPoolExecutor(
 )
 
 
+@lru_cache(maxsize=4)
+def _load_native_image_library(path: str):
+    if not Path(path).is_file():
+        return None
+    try:
+        library = ctypes.CDLL(path)
+        library.qp_preprocess_image.argtypes = [
+            ctypes.c_char_p, ctypes.c_size_t, ctypes.c_int, ctypes.c_int,
+            ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_size_t),
+        ]
+        library.qp_preprocess_image.restype = ctypes.c_int
+        library.qp_free_image.argtypes = [ctypes.c_void_p]
+        library.qp_free_image.restype = None
+        return library
+    except (OSError, AttributeError):
+        logger.warning("C++ image library unavailable; using Pillow")
+        return None
+
+
+def _call_native_image_library(image_bytes: bytes, max_dimension: int, quality: int) -> bytes | None:
+    path = settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY.strip()
+    if not path:
+        return None
+    library = _load_native_image_library(path)
+    if library is None:
+        return None
+    output = ctypes.c_void_p()
+    output_size = ctypes.c_size_t()
+    try:
+        result = library.qp_preprocess_image(
+            image_bytes, len(image_bytes), max_dimension, quality,
+            ctypes.byref(output), ctypes.byref(output_size),
+        )
+        if result != 0 or not output.value or not (0 < output_size.value <= 20 * 1024 * 1024):
+            logger.warning("C++ image library rejected input; using Pillow")
+            return None
+        return ctypes.string_at(output.value, output_size.value)
+    finally:
+        if output.value:
+            library.qp_free_image(output)
+
+
 def _try_native_preprocess(
     image_bytes: bytes,
     max_dimension: int,
     quality: int,
+    *,
+    use_library: bool = True,
 ) -> tuple[bytes, str, tuple[int, int]] | None:
-    """Run the optional Rust helper, returning None to preserve Pillow fallback."""
+    """Try configured C++ library or native subprocess; preserve Pillow fallback."""
     executable = settings.NATIVE_IMAGE_PREPROCESSOR_PATH.strip()
-    if not executable:
+    library_path = settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY.strip() if use_library else ""
+    if not executable and not library_path:
         return None
 
     try:
-        completed = subprocess.run(
-            [
-                executable,
-                "--max-dimension", str(max_dimension),
-                "--quality", str(quality),
-            ],
-            input=image_bytes,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=settings.NATIVE_IMAGE_PREPROCESS_TIMEOUT,
-            check=False,
-        )
-        if completed.returncode != 0 or not completed.stdout:
-            logger.warning(
-                "native image preprocessing failed (exit=%s, detail=%s); using Pillow",
-                completed.returncode,
-                completed.stderr.decode("utf-8", errors="replace")[:200],
+        output = _call_native_image_library(image_bytes, max_dimension, quality) if use_library else None
+        if output is None and executable:
+            completed = subprocess.run(
+                [
+                    executable,
+                    "--max-dimension", str(max_dimension),
+                    "--quality", str(quality),
+                ],
+                input=image_bytes,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                timeout=settings.NATIVE_IMAGE_PREPROCESS_TIMEOUT,
+                check=False,
             )
+            if completed.returncode == 0:
+                output = completed.stdout
+            else:
+                logger.warning(
+                    "native image preprocessing failed (exit=%s, detail=%s); using Pillow",
+                    completed.returncode,
+                    completed.stderr.decode("utf-8", errors="replace")[:200],
+                )
+        if not output:
             return None
 
         from PIL import Image
 
-        with Image.open(io.BytesIO(completed.stdout)) as processed:
+        with Image.open(io.BytesIO(output)) as processed:
+            processed.verify()
             size = processed.size
         if not size[0] or not size[1] or max(size) > max_dimension:
             logger.warning("native image preprocessing returned invalid dimensions; using Pillow")
             return None
-        return completed.stdout, "image/jpeg", size
-    except (OSError, subprocess.TimeoutExpired) as exc:
+        return output, "image/jpeg", size
+    except Exception as exc:
         logger.warning("native image preprocessing unavailable (%s); using Pillow", type(exc).__name__)
         return None
 
@@ -327,9 +380,18 @@ def _preprocess(
         if not has_orientation and not needs_resize and img.mode in ("RGB", "L"):
             return image_bytes, mime_type, meta
 
-        native_result = _try_native_preprocess(
-            image_bytes, max_dimension, quality,
-        )
+        # Camera JPEGs that exceed the upload dimension are the C++ target.
+        # Other formats retain the existing subprocess/Pillow behavior.
+        cpp_eligible = needs_resize and img.format == "JPEG" and img.mode in ("RGB", "L")
+        if cpp_eligible:
+            native_result = _try_native_preprocess(image_bytes, max_dimension, quality)
+        elif settings.NATIVE_IMAGE_PREPROCESSOR_PATH.strip():
+            # Preserve the older subprocess helper's full format coverage.
+            native_result = _try_native_preprocess(
+                image_bytes, max_dimension, quality, use_library=False,
+            )
+        else:
+            native_result = None
         if native_result:
             out, out_mime, out_size = native_result
             meta.update(

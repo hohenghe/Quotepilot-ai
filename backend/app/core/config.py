@@ -68,9 +68,12 @@ class Settings(BaseSettings):
     # from request concurrency so bursts of photo recognition cannot consume
     # every API CPU core.  It runs in a dedicated thread pool.
     IMAGE_PREPROCESS_MAX_WORKERS: int = Field(default=2, ge=1, le=8)
-    # Optional path to the Rust native image helper.  Leave empty to use the
-    # Pillow implementation; a failed native invocation always falls back.
+    # Optional path to a native image subprocess (Rust or C++). Leave empty
+    # to use Pillow; a failed native invocation always falls back.
     NATIVE_IMAGE_PREPROCESSOR_PATH: str = ""
+    # Optional in-process C++/libvips build. Avoids starting a subprocess for
+    # each image; keep unset until benchmarked on the target deployment.
+    NATIVE_IMAGE_PREPROCESSOR_LIBRARY: str = ""
     NATIVE_IMAGE_PREPROCESS_TIMEOUT: int = Field(default=15, ge=1, le=60)
 
     # Dev default is a known constant; production MUST override via env.

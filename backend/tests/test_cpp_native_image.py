@@ -35,6 +35,7 @@ def test_cpp_library_orients_and_bounds_large_jpeg():
         assert native.call_count == 2
         assert output == native_output
         assert mime == "image/jpeg" and meta["was_resized"]
+        assert meta["preprocess_backend"] == "native"
         with Image.open(io.BytesIO(output)) as processed:
             assert processed.size == (768, 1024)
             assert processed.getexif().get(0x0112) in (None, 1)

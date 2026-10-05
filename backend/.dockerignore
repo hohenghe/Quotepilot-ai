@@ -1,0 +1,14 @@
+.env
+.env.*
+*.db
+*.sqlite*
+__pycache__/
+.pytest_cache/
+.venv/
+venv/
+uploads/
+benchmarks/
+scripts/
+native-cpp/build/
+native-cpp/local-sdk/
+native-image-preprocessor/target/

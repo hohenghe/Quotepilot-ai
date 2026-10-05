@@ -256,6 +256,8 @@ def test_native_preprocess_fallback():
         output, mime = preprocess_image(buf.getvalue(), "image/jpeg", 1024)
         decoded = Image.open(BytesIO(output))
         check("native fallback: Pillow result returned", mime == "image/jpeg" and max(decoded.size) <= 1024)
+        _, _, meta = vision._preprocess(buf.getvalue(), "image/jpeg", 1024, 90)
+        check("native fallback: backend marker is Pillow", meta["preprocess_backend"] == "pillow")
     finally:
         settings.NATIVE_IMAGE_PREPROCESSOR_PATH = original_path
         settings.NATIVE_IMAGE_PREPROCESSOR_LIBRARY = original_library

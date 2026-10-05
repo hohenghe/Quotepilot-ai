@@ -357,6 +357,7 @@ def _preprocess(
         "original_width": 0, "original_height": 0, "original_bytes": ob,
         "megapixels": 0.0, "was_resized": False, "was_reencoded": False,
         "processed_width": 0, "processed_height": 0, "processed_bytes": ob,
+        "preprocess_backend": "original",
     }
     try:
         from PIL import Image, ImageOps
@@ -397,6 +398,7 @@ def _preprocess(
             meta.update(
                 was_resized=needs_resize,
                 was_reencoded=True,
+                preprocess_backend="native",
                 processed_width=out_size[0],
                 processed_height=out_size[1],
                 processed_bytes=len(out),
@@ -434,6 +436,7 @@ def _preprocess(
         img.save(buf, format="JPEG", quality=quality)
         out = buf.getvalue()
         meta["was_reencoded"] = True
+        meta["preprocess_backend"] = "pillow"
         meta["processed_width"], meta["processed_height"] = img.size
         meta["processed_bytes"] = len(out)
         return out, "image/jpeg", meta
@@ -585,11 +588,13 @@ async def recognize_product_image(image_bytes: bytes, mime_type: str) -> dict[st
         "[PRODUCT_AI] original_width=%s original_height=%s original_bytes=%s "
         "processed_width=%s processed_height=%s processed_bytes=%s "
         "compression_ratio=%s image_megapixels=%s was_resized=%s was_reencoded=%s "
+        "preprocess_backend=%s "
         "preprocess_ms=%s base64_ms=%s ocr_ms=%s vision_ms=%s total_ms=%s "
         "ocr_model=%s vision_model=%s ocr_in=%s ocr_out=%s vision_in=%s vision_out=%s",
         pmeta["original_width"], pmeta["original_height"], ob,
         pmeta["processed_width"], pmeta["processed_height"], pb,
         compression_ratio, pmeta["megapixels"], pmeta["was_resized"], pmeta["was_reencoded"],
+        pmeta["preprocess_backend"],
         preprocess_ms, base64_ms, ocr_ms, vision_ms, total_ms,
         ocr_model, vision_model,
         ocr_usage.get("prompt_tokens", 0), ocr_usage.get("completion_tokens", 0),

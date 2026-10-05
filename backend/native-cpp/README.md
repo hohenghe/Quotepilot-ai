@@ -20,10 +20,32 @@ the libvips runtime. The application does not require the binary to start. On
 Northflank, compile it in the backend build environment and set
 `NATIVE_IMAGE_PREPROCESSOR_LIBRARY` to the absolute path of `libqp_image.so`.
 The executable can instead be selected with `NATIVE_IMAGE_PREPROCESSOR_PATH`.
-Keep both variables unset until the target Linux build has passed image
-fixtures, CPU/latency measurements, and a production-like OCR accuracy
-benchmark. The shared library is faster in local photo tests because it avoids
-starting a subprocess for each image.
+The backend Dockerfile builds this library on Linux, runs its EXIF/dimension
+integration tests, and checks its runtime dependencies. On Northflank, select
+Dockerfile `/backend/Dockerfile` with build context `/backend`. The image does
+not enable the library automatically: leave both native variables unset until
+CPU/latency measurements and a production-like OCR accuracy benchmark pass.
+The shared library was faster in local photo tests because it avoids starting
+a subprocess for each image; production gains are not yet verified.
+
+To build and check the image locally on a machine with Docker:
+
+```sh
+docker build -f backend/Dockerfile -t quotepilot-backend-native backend
+docker run --rm --entrypoint ldd quotepilot-backend-native /app/native-cpp/build/libqp_image.so
+docker run --rm --entrypoint python quotepilot-backend-native -c "import ctypes; ctypes.CDLL('/app/native-cpp/build/libqp_image.so')"
+```
+
+After verifying real product photos on a staging deployment, set the runtime
+variable `NATIVE_IMAGE_PREPROCESSOR_LIBRARY` to
+`/app/native-cpp/build/libqp_image.so` to opt in. The C++ path only processes
+oversized RGB/grayscale JPEGs; other images continue using Pillow. To roll
+back, remove this variable and restart/redeploy the service. For an oversized
+JPEG recognition request, check the `[PRODUCT_AI]` log line for
+`preprocess_backend=native`; `pillow` means the native path was skipped or
+failed, and `original` means no transform was needed. Do not set the older
+`NATIVE_IMAGE_PREPROCESSOR_PATH` unless intentionally using the separate
+subprocess helper.
 
 After building on Linux, verify the actual binary before enabling it:
 

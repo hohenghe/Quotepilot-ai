@@ -59,5 +59,6 @@ RUN ldd /app/native-cpp/build/libqp_image.so | grep -q libvips \
     && ! ldd /app/native-cpp/build/libqp_image.so | grep -q 'not found' \
     && python -c "import app.main, seed_admin, reset_admin_password"
 
-EXPOSE 8000
-CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-proxy-headers"]
+# Northflank's public HTTP route targets container port 8080.
+EXPOSE 8080
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080", "--no-proxy-headers"]

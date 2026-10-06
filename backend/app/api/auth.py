@@ -251,7 +251,8 @@ async def get_wechat_phone(data: WechatPhoneRequest):
 async def login(data: LoginRequest, db: AsyncSession = Depends(get_db), request: Request = None):
     if login_locked(data.identifier):
         raise HTTPException(status_code=429, detail="Too many login attempts. Please try again later.", headers={"Retry-After": "300"})
-    await verify_turnstile(request, data.turnstile_token, "web_login")
+    if data.role != "admin":
+        await verify_turnstile(request, data.turnstile_token, "web_login")
     result = await db.execute(
         select(User).where(
             User.is_active == True,
@@ -285,6 +286,11 @@ async def login(data: LoginRequest, db: AsyncSession = Depends(get_db), request:
 
     if getattr(user, "restricted_port", None) and data.role != user.restricted_port:
         raise HTTPException(status_code=403, detail="账号不能登录此端，请选择对应入口")
+
+    # The admin portal has no widget. A buyer/seller claiming role=admin must
+    # still pass the browser challenge before receiving a token.
+    if data.role == "admin" and user.role != "admin":
+        await verify_turnstile(request, data.turnstile_token, "web_login")
 
     # Admins skip email verification; everyone else must verify.
     if user.role != "admin" and user.email_verified_at is None:
@@ -433,7 +439,7 @@ async def forgot_password(data: ForgotPasswordRequest, db: AsyncSession = Depend
     await verify_turnstile(request, data.turnstile_token, "web_forgot_password")
     email = data.email.strip()
     users = (await db.execute(
-        select(User).where(User.email == email, User.is_active == True)
+        select(User).where(User.email == email, User.is_active == True, User.role != "admin")
     )).scalars().all()
 
     if not users:
@@ -473,6 +479,8 @@ async def reset_password(data: ResetPasswordRequest, db: AsyncSession = Depends(
 
     user = await db.get(User, token.user_id)
     if not user:
+        raise HTTPException(status_code=400, detail="Reset link is invalid or expired.")
+    if user.role == "admin":
         raise HTTPException(status_code=400, detail="Reset link is invalid or expired.")
 
     user.password_hash = await run_password_operation(hash_password, data.new_password)

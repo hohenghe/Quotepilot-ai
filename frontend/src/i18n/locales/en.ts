@@ -397,6 +397,7 @@ const en = {
     waitCooldown: "Please wait before requesting another email.",
     humanVerificationRequired: "Please complete the human verification first.",
     invalidCredentialsAfterVerification: "Verification passed. Check your login ID and password.",
+    invalidCredentials: "Check your login ID and password.",
     loginRateLimited: "Too many login attempts. Please wait five minutes and try again.",
     humanVerificationLoadFailed: "Human verification could not load. Please refresh the page.",
   },

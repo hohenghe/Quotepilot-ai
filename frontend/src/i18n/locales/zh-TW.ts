@@ -394,6 +394,7 @@ const zhTW = {
     waitCooldown: "請稍後再請求發送郵件。",
     humanVerificationRequired: "請先完成人機驗證。",
     invalidCredentialsAfterVerification: "人機驗證已通過，請檢查登入帳號和密碼。",
+    invalidCredentials: "請檢查登入帳號和密碼。",
     loginRateLimited: "登入嘗試過多，請等待五分鐘後重試。",
     humanVerificationLoadFailed: "人機驗證載入失敗，請重新整理頁面再試。",
   },

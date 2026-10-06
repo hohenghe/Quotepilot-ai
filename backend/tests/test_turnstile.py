@@ -16,6 +16,30 @@ from app.services.turnstile import verify_turnstile
 
 
 class TurnstileTests(unittest.IsolatedAsyncioTestCase):
+    async def test_admin_login_does_not_require_widget(self):
+        from app.api import auth
+
+        admin = SimpleNamespace(
+            id=9, email="admin@example.com", role="admin", restricted_port=None,
+            password_hash="hash", email_verified_at=None, auth_version=0,
+            name="Admin", store_name=None, supports_distribution=None,
+            avatar_url=None, business_license_url=None, country="CN",
+            phone=None, uid=None,
+        )
+        db = SimpleNamespace(execute=AsyncMock(return_value=SimpleNamespace(
+            scalars=lambda: SimpleNamespace(all=lambda: [admin]),
+        )))
+        request = SimpleNamespace(headers={"origin": "http://localhost:3000"})
+        with patch.object(auth, "login_locked", return_value=False), \
+             patch.object(auth, "run_password_operation", new_callable=AsyncMock, return_value=True), \
+             patch.object(auth, "password_needs_rehash", return_value=False), \
+             patch.object(auth, "verify_turnstile", new_callable=AsyncMock) as challenge:
+            response = await auth.login(auth.LoginRequest(
+                identifier=admin.email, password="correct-password", role="admin"), db, request)
+        self.assertEqual(response.role, "admin")
+        self.assertTrue(response.token)
+        challenge.assert_not_awaited()
+
     async def test_spin_environment_variable_names_are_supported(self):
         request = SimpleNamespace(headers={"origin": "http://localhost:3000"})
         response = SimpleNamespace(

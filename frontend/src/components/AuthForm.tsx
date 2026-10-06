@@ -67,14 +67,14 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
     setLocalError(null)
     if (mode === "login") {
       if (!email || !password) return
-      if (turnstileEnabled && !turnstileToken) {
+      if (role !== "admin" && turnstileEnabled && !turnstileToken) {
         setLocalError(t.auth.humanVerificationRequired)
         return
       }
       try {
         await onSubmit({ email, password, name, country, phone, turnstileToken: turnstileToken || undefined })
       } finally {
-        turnstileRef.current?.reset()
+        if (role !== "admin") turnstileRef.current?.reset()
       }
       return
     }
@@ -364,8 +364,8 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
           </Link>
         )}
 
-        <TurnstileWidget ref={turnstileRef} action={mode === "register" ? "web_register" : "web_login"}
-          onTokenChange={setTurnstileToken} errorMessage={t.auth.humanVerificationLoadFailed} />
+        {role !== "admin" && <TurnstileWidget ref={turnstileRef} action={mode === "register" ? "web_register" : "web_login"}
+          onTokenChange={setTurnstileToken} errorMessage={t.auth.humanVerificationLoadFailed} />}
 
         <button
           className="btn-primary w-full justify-center py-3 text-base"
@@ -379,9 +379,9 @@ export default function AuthForm({ mode, role, onSubmit, onToggleMode, loading, 
 
         {mode === "login" && (
           <>
-            <Link href="/forgot-password" className="block text-center text-sm text-slate-500 hover:text-slate-700 mt-4">
+            {role !== "admin" && <Link href="/forgot-password" className="block text-center text-sm text-slate-500 hover:text-slate-700 mt-4">
               {t.auth.forgotPassword}
-            </Link>
+            </Link>}
             {role !== "admin" && <Link href="/verify-email" className="block text-center text-sm text-brand-600 hover:text-brand-700 mt-3">
               {t.auth.verifyCode}
             </Link>}

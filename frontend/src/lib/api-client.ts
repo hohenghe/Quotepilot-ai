@@ -383,6 +383,35 @@ export async function adminGetDashboard(): Promise<{
   return await request("/api/dashboard/admin")
 }
 
+export interface AdminTrendDay {
+  date: string
+  buyer_views: number
+  seller_views: number
+  admin_views: number
+  analyses: number
+  sent_inquiries: number
+  new_buyers: number
+  new_sellers: number
+}
+
+export async function adminGetTrends(days: 7 | 30 | 90): Promise<{ timezone: string; days: AdminTrendDay[] }> {
+  return request(`/api/analytics/admin?days=${days}`)
+}
+
+export function trackPortalView(portal: "buyer" | "seller" | "admin"): void {
+  const token = portal === "buyer" ? null : getToken()
+  if (portal !== "buyer" && !token) return
+  void fetch(`${getApiBaseUrl()}/api/analytics/view`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({ portal }),
+    keepalive: true,
+  }).catch(() => { /* Analytics must never block navigation. */ })
+}
+
 export async function adminListSellers(): Promise<SellerInfo[]> {
   const data = await request<{ sellers: SellerInfo[] }>("/api/dashboard/admin/sellers")
   return data.sellers

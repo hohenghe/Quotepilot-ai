@@ -9,7 +9,7 @@ import {
   Copy, Clock, CheckCircle2, Inbox, Star, Flag, Pencil, ImagePlus, Plus, BookOpen,
 } from "lucide-react"
 import { isAuthenticated, isSeller, isAdmin, getUser, logout, saveAuth, getToken } from "@/lib/auth"
-import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore, uploadImage } from "@/lib/api-client"
+import { uploadProducts, getSellerReceivedInquiries, generateSellerReply, getSellerProducts, deleteProducts, updateProfile, getMySellerReviews, reportReview, getSellerScore, uploadImage, trackPortalView } from "@/lib/api-client"
 import { CHINA_PROVINCES, CHINA_REGIONS, parseRegion, regionValue } from "@/lib/china-cities"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
@@ -40,6 +40,7 @@ export default function SellerPage() {
       return
     }
     setAuthReady(true)
+    trackPortalView("seller")
     try {
       if (!localStorage.getItem(`seller-guide-v1:${getUser()?.user_id}`)) setTab("tutorial")
     } catch { /* Storage may be unavailable in private browsing. */ }

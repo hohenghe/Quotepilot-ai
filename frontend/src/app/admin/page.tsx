@@ -2,9 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag, FlaskConical, Send, Bot, Plus, Activity, RefreshCw } from "lucide-react"
+import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag, FlaskConical, Send, Bot, Plus, Activity, RefreshCw, BarChart3 } from "lucide-react"
+import dynamic from "next/dynamic"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
-import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminVerifyTestEmailCode, adminTestLlm, adminGetLlmStatus, adminGetEmbeddingStatus, adminTestEmbedding, adminGetRecognitionStatus, adminTestRecognition, adminCreateTestProduct, adminDeleteTestProduct } from "@/lib/api-client"
+import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminVerifyTestEmailCode, adminTestLlm, adminGetLlmStatus, adminGetEmbeddingStatus, adminTestEmbedding, adminGetRecognitionStatus, adminTestRecognition, adminCreateTestProduct, adminDeleteTestProduct, trackPortalView } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -25,7 +26,9 @@ interface Stats {
   categories: Record<string, number>
 }
 
-type Tab = "overview" | "accounts" | "products" | "inquiries" | "reviews" | "testing"
+const AdminAnalytics = dynamic(() => import("@/components/AdminAnalytics"))
+
+type Tab = "overview" | "analytics" | "accounts" | "products" | "inquiries" | "reviews" | "testing"
 
 export default function AdminPage() {
   const { t } = useT()
@@ -39,6 +42,7 @@ export default function AdminPage() {
       return
     }
     setAuthReady(true)
+    trackPortalView("admin")
   }, [router])
 
   const user = authReady ? getUser() : null
@@ -120,6 +124,7 @@ export default function AdminPage() {
 
   const nav = [
     { key: "overview", label: t.nav.overview, icon: LayoutDashboard },
+    { key: "analytics", label: "数据分析", icon: BarChart3 },
     { key: "accounts", label: t.admin.accounts, icon: Users },
     { key: "products", label: t.nav.products, icon: Package },
     { key: "inquiries", label: t.nav.inquiries, icon: Mail },
@@ -483,6 +488,7 @@ export default function AdminPage() {
       userEmail={user?.email}
       onSignOut={handleLogout}
     >
+      {tab === "analytics" && <AdminAnalytics />}
       {tab === "overview" && (
         <>
           <header className="mb-6">

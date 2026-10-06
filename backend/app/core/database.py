@@ -240,6 +240,7 @@ async def init_db():
     from app.models.auth_token import AuthToken
     from app.models.seller_wechat_account import SellerWechatAccount
     from app.models.user_phone import UserPhone
+    from app.models.portal_view import PortalDailyView
 
     async with engine.begin() as conn:
         await conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))

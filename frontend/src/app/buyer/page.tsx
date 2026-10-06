@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from "react"
 import { Sparkles, Send, Search, Mail, Heart, User, Package, Check, Copy, Star, Store, ImagePlus } from "lucide-react"
-import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct, uploadImage, updateProfile } from "@/lib/api-client"
+import { analyzeAndMatch, login, register, sendInquiryToSeller, getBuyerInquiries, getSavedProducts, saveProduct, unsaveProduct, uploadImage, updateProfile, trackPortalView } from "@/lib/api-client"
 import { saveAuth, isAuthenticated, getUser, logout, getToken } from "@/lib/auth"
 import AuthForm from "@/components/AuthForm"
 import DashboardShell from "@/components/DashboardShell"
@@ -83,6 +83,7 @@ export default function BuyerPage() {
 
   const [authReady, setAuthReady] = useState(false)
   useEffect(() => { setAuthReady(true) }, [])
+  useEffect(() => { trackPortalView("buyer") }, [])
 
   const user = authReady ? getUser() : null
   const loggedIn = authReady && isAuthenticated()

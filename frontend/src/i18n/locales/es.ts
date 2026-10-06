@@ -397,6 +397,7 @@ const es = {
     waitCooldown: "Espere antes de solicitar otro correo.",
     humanVerificationRequired: "Complete primero la verificación humana.",
     invalidCredentialsAfterVerification: "Verificación superada. Compruebe su usuario y contraseña.",
+    invalidCredentials: "Compruebe su usuario y contraseña.",
     loginRateLimited: "Demasiados intentos de inicio de sesión. Espere cinco minutos y vuelva a intentarlo.",
     humanVerificationLoadFailed: "No se pudo cargar la verificación humana. Actualice la página.",
   },

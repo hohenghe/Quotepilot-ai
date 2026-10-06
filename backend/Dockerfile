@@ -51,12 +51,13 @@ COPY --from=build /opt/venv /opt/venv
 COPY --from=build /app/app /app/app
 COPY --from=build /app/native-cpp/build/libqp_image.so /app/native-cpp/build/libqp_image.so
 COPY seed_admin.py ./seed_admin.py
+COPY reset_admin_password.py ./reset_admin_password.py
 
 # Catch missing shared-library dependencies before deployment; no feature flag
 # is set here, so the production default remains Pillow.
 RUN ldd /app/native-cpp/build/libqp_image.so | grep -q libvips \
     && ! ldd /app/native-cpp/build/libqp_image.so | grep -q 'not found' \
-    && python -c "import app.main, seed_admin"
+    && python -c "import app.main, seed_admin, reset_admin_password"
 
 EXPOSE 8000
 CMD ["sh", "-c", "exec uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000} --no-proxy-headers"]

@@ -26,10 +26,17 @@ export default function AdminLoginPage() {
       router.push("/admin")
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : ""
-      if (message.includes("Human verification")) {
+      const status = /^API error (\d+):/.exec(message)?.[1]
+      if (status === "429") {
+        setError(t.auth.loginRateLimited)
+      } else if (message.includes("Human verification is temporarily unavailable") || message.includes("Human verification is misconfigured")) {
+        setError(t.auth.humanVerificationLoadFailed)
+      } else if (message.includes("Human verification")) {
         setError(t.auth.humanVerificationRequired)
-      } else if (message.startsWith("API error 401:")) {
+      } else if (status === "401") {
         setError(t.auth.invalidCredentialsAfterVerification)
+      } else if (status) {
+        setError(`${t.common.somethingWentWrong} (HTTP ${status})`)
       } else {
         setError(t.common.somethingWentWrong)
       }

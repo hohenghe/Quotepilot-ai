@@ -397,6 +397,7 @@ const fr = {
     waitCooldown: "Veuillez patienter avant de demander un autre email.",
     humanVerificationRequired: "Veuillez d'abord effectuer la vérification humaine.",
     invalidCredentialsAfterVerification: "Vérification réussie. Vérifiez votre identifiant et votre mot de passe.",
+    loginRateLimited: "Trop de tentatives de connexion. Attendez cinq minutes avant de réessayer.",
     humanVerificationLoadFailed: "La vérification humaine ne s'est pas chargée. Actualisez la page.",
   },
   country: {

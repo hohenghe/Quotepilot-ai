@@ -394,6 +394,7 @@ const zhCN = {
     waitCooldown: "请稍后再请求发送邮件。",
     humanVerificationRequired: "请先完成人机验证。",
     invalidCredentialsAfterVerification: "人机验证已通过，请检查登录账号和密码。",
+    loginRateLimited: "登录尝试过多，请等待五分钟后重试。",
     humanVerificationLoadFailed: "人机验证加载失败，请刷新页面重试。",
   },
   country: {

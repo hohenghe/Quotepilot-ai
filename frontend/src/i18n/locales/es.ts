@@ -396,6 +396,7 @@ const es = {
     resetInvalid: "El enlace de restablecimiento no es válido o ha caducado.",
     waitCooldown: "Espere antes de solicitar otro correo.",
     humanVerificationRequired: "Complete primero la verificación humana.",
+    invalidCredentialsAfterVerification: "Verificación superada. Compruebe su usuario y contraseña.",
     humanVerificationLoadFailed: "No se pudo cargar la verificación humana. Actualice la página.",
   },
   country: {

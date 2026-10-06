@@ -47,3 +47,13 @@ scripts that omit or forge `Origin` can bypass the challenge on the shared
 password endpoints. Keep the existing API rate limits and put the API behind
 an edge WAF for stronger protection. Anonymous inquiry analysis has no mini
 program caller and requires a valid token from every guest when enabled.
+
+## Administrator password recovery
+
+`ADMIN_PASSWORD` is used only when a new admin account is created; changing it
+later does not overwrite an existing account's password. If the admin mailbox
+cannot receive a reset email, run `python reset_admin_password.py --execute`
+once in the backend service console. It reads `ADMIN_EMAIL` and
+`ADMIN_PASSWORD` from that service's environment, requires exactly one active
+admin account for the email, updates its password only when different, and
+revokes its previous JWTs. The password is never passed on the command line.

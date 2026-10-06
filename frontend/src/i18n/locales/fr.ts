@@ -396,6 +396,7 @@ const fr = {
     resetInvalid: "Le lien de réinitialisation est invalide ou a expiré.",
     waitCooldown: "Veuillez patienter avant de demander un autre email.",
     humanVerificationRequired: "Veuillez d'abord effectuer la vérification humaine.",
+    invalidCredentialsAfterVerification: "Vérification réussie. Vérifiez votre identifiant et votre mot de passe.",
     humanVerificationLoadFailed: "La vérification humaine ne s'est pas chargée. Actualisez la page.",
   },
   country: {

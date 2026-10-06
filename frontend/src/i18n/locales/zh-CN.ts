@@ -393,6 +393,7 @@ const zhCN = {
     resetInvalid: "重置链接无效或已过期。",
     waitCooldown: "请稍后再请求发送邮件。",
     humanVerificationRequired: "请先完成人机验证。",
+    invalidCredentialsAfterVerification: "人机验证已通过，请检查登录账号和密码。",
     humanVerificationLoadFailed: "人机验证加载失败，请刷新页面重试。",
   },
   country: {

@@ -24,8 +24,15 @@ export default function AdminLoginPage() {
         store_name: res.store_name, avatar_url: res.avatar_url, business_license_url: res.business_license_url, country: res.country, phone: res.phone, uid: res.uid,
       })
       router.push("/admin")
-    } catch (e: any) {
-      setError(e.message?.includes("Human verification") ? t.auth.humanVerificationRequired : "Invalid credentials")
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : ""
+      if (message.includes("Human verification")) {
+        setError(t.auth.humanVerificationRequired)
+      } else if (message.startsWith("API error 401:")) {
+        setError(t.auth.invalidCredentialsAfterVerification)
+      } else {
+        setError(t.common.somethingWentWrong)
+      }
     } finally {
       setLoading(false)
     }

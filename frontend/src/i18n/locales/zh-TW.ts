@@ -393,6 +393,7 @@ const zhTW = {
     resetInvalid: "重設連結無效或已過期。",
     waitCooldown: "請稍後再請求發送郵件。",
     humanVerificationRequired: "請先完成人機驗證。",
+    invalidCredentialsAfterVerification: "人機驗證已通過，請檢查登入帳號和密碼。",
     humanVerificationLoadFailed: "人機驗證載入失敗，請重新整理頁面再試。",
   },
   country: {

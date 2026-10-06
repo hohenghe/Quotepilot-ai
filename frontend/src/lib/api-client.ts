@@ -436,6 +436,55 @@ export async function adminTestLlm(prompt: string): Promise<{ ai_used: boolean; 
   })
 }
 
+export interface AdminEmbeddingStatus {
+  configured: boolean
+  model: string
+  stats: { total: number; completed: number; pending: number; processing: number; failed: number }
+}
+
+export interface AdminEmbeddingTestResult {
+  model: string
+  dimension: number
+  similarity: number
+  latency_ms: number
+}
+
+export async function adminGetLlmStatus(): Promise<{ llm_available: boolean; model: string }> {
+  return request("/api/debug/llm-status")
+}
+
+export async function adminGetEmbeddingStatus(): Promise<AdminEmbeddingStatus> {
+  return request("/api/debug/embedding-status")
+}
+
+export async function adminTestEmbedding(textA: string, textB: string): Promise<AdminEmbeddingTestResult> {
+  return request("/api/admin/tests/embedding", {
+    method: "POST",
+    body: JSON.stringify({ text_a: textA, text_b: textB }),
+  })
+}
+
+export async function adminGetRecognitionStatus(): Promise<{ configured: boolean; ocr_model: string; vision_model: string }> {
+  return request("/api/admin/tests/recognition/status")
+}
+
+export async function adminTestRecognition(file: File): Promise<RecognizedFields> {
+  const formData = new FormData()
+  formData.append("file", file)
+  const token = getToken()
+  const res = await fetch(`${getApiBaseUrl()}/api/admin/tests/recognition`, {
+    method: "POST",
+    body: formData,
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  })
+  if (!res.ok) {
+    if (res.status === 401) logout()
+    throw new Error(`API error ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  }
+  const data = await res.json()
+  return data.data as RecognizedFields
+}
+
 export async function adminCreateTestProduct(): Promise<{ product_id: number; name: string; sku: string }> {
   return await request("/api/admin/tests/products", { method: "POST" })
 }

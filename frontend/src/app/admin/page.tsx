@@ -2,9 +2,9 @@
 
 import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
-import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag, FlaskConical, Send, Bot, Plus } from "lucide-react"
+import { LayoutDashboard, Users, Package, Mail, FileText, Inbox, Search, Trash2, ChevronLeft, ChevronRight, Star, Flag, FlaskConical, Send, Bot, Plus, Activity, RefreshCw } from "lucide-react"
 import { isAuthenticated, isAdmin, getUser, logout } from "@/lib/auth"
-import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminVerifyTestEmailCode, adminTestLlm, adminCreateTestProduct, adminDeleteTestProduct } from "@/lib/api-client"
+import { adminGetDashboard, adminListProducts, adminListInquiries, deleteProducts, adminResetAll, adminClearSavedProducts, adminListUsers, adminDeleteUsers, adminDeleteInquiries, adminListReviews, deleteReview, adminSendTestVerificationEmail, adminVerifyTestEmailCode, adminTestLlm, adminGetLlmStatus, adminGetEmbeddingStatus, adminTestEmbedding, adminGetRecognitionStatus, adminTestRecognition, adminCreateTestProduct, adminDeleteTestProduct } from "@/lib/api-client"
 import DashboardShell from "@/components/DashboardShell"
 import StatCard from "@/components/StatCard"
 import EmptyState from "@/components/EmptyState"
@@ -14,7 +14,7 @@ import { TableSkeleton, Skeleton } from "@/components/LoadingSkeleton"
 import { useToast } from "@/components/Toast"
 import { useT } from "@/i18n/I18nProvider"
 import type { Product, Inquiry } from "@/types"
-import type { AdminUserItem, ReviewItem } from "@/lib/api-client"
+import type { AdminUserItem, ReviewItem, AdminEmbeddingStatus, AdminEmbeddingTestResult, RecognizedFields } from "@/lib/api-client"
 import { adminCreateAccount } from "@/lib/api-client"
 
 interface Stats {
@@ -100,6 +100,21 @@ export default function AdminPage() {
   const [testPrompt, setTestPrompt] = useState("Please analyze a request for 500 LED desk lamps, 12W, CE certified, delivered to Germany.")
   const [testingLlm, setTestingLlm] = useState(false)
   const [llmResult, setLlmResult] = useState<Record<string, unknown> | null>(null)
+  const [llmError, setLlmError] = useState("")
+  const [llmStatus, setLlmStatus] = useState<{ llm_available: boolean; model: string } | null>(null)
+  const [embeddingStatus, setEmbeddingStatus] = useState<AdminEmbeddingStatus | null>(null)
+  const [diagnosticsLoading, setDiagnosticsLoading] = useState(false)
+  const [diagnosticsError, setDiagnosticsError] = useState(false)
+  const [embeddingTextA, setEmbeddingTextA] = useState("LED desk lamp, 12W, CE certified")
+  const [embeddingTextB, setEmbeddingTextB] = useState("12 watt LED table light with CE certification")
+  const [testingEmbedding, setTestingEmbedding] = useState(false)
+  const [embeddingResult, setEmbeddingResult] = useState<AdminEmbeddingTestResult | null>(null)
+  const [embeddingError, setEmbeddingError] = useState("")
+  const [recognitionStatus, setRecognitionStatus] = useState<{ configured: boolean; ocr_model: string; vision_model: string } | null>(null)
+  const [recognitionFile, setRecognitionFile] = useState<File | null>(null)
+  const [testingRecognition, setTestingRecognition] = useState(false)
+  const [recognitionResult, setRecognitionResult] = useState<RecognizedFields | null>(null)
+  const [recognitionError, setRecognitionError] = useState("")
   const [testProduct, setTestProduct] = useState<{ product_id: number; name: string; sku: string } | null>(null)
   const [testingProduct, setTestingProduct] = useState(false)
 
@@ -160,6 +175,18 @@ export default function AdminPage() {
     }
   }, [productsPage, productSearch])
 
+  const loadDiagnostics = useCallback(async () => {
+    setDiagnosticsLoading(true)
+    const [llm, embedding, recognition] = await Promise.allSettled([
+      adminGetLlmStatus(), adminGetEmbeddingStatus(), adminGetRecognitionStatus(),
+    ])
+    setLlmStatus(llm.status === "fulfilled" ? llm.value : null)
+    setEmbeddingStatus(embedding.status === "fulfilled" ? embedding.value : null)
+    setRecognitionStatus(recognition.status === "fulfilled" ? recognition.value : null)
+    setDiagnosticsError(llm.status === "rejected" || embedding.status === "rejected" || recognition.status === "rejected")
+    setDiagnosticsLoading(false)
+  }, [])
+
   useEffect(() => {
     if (isAdmin()) loadAll()
   }, [loadAll])
@@ -175,6 +202,10 @@ export default function AdminPage() {
   useEffect(() => {
     if (tab === "reviews") loadReviews()
   }, [tab, loadReviews])
+
+  useEffect(() => {
+    if (authReady && tab === "testing") loadDiagnostics()
+  }, [authReady, tab, loadDiagnostics])
 
   const handleLogout = () => {
     logout()
@@ -313,7 +344,17 @@ export default function AdminPage() {
     }
   }
 
-  const errorMessage = (error: unknown) => error instanceof Error ? error.message.replace(/^API error \d+:\s*/, "") : "操作失败"
+  const errorMessage = (error: unknown) => {
+    if (!(error instanceof Error)) return "操作失败"
+    const message = error.message.replace(/^API error \d+:\s*/, "")
+    try {
+      const body: unknown = JSON.parse(message)
+      if (body && typeof body === "object" && "detail" in body && typeof body.detail === "string") {
+        return body.detail
+      }
+    } catch { /* Non-JSON errors already contain a readable message. */ }
+    return message
+  }
 
   const handleTestEmail = async () => {
     setSendingTestEmail(true)
@@ -353,14 +394,48 @@ export default function AdminPage() {
   const handleTestLlm = async () => {
     setTestingLlm(true)
     setLlmResult(null)
+    setLlmError("")
     try {
       const result = await adminTestLlm(testPrompt)
       setLlmResult({ ai_used: result.ai_used, ...result.analysis })
       toast.push("success", "大模型调用完成")
     } catch (error) {
+      setLlmError(errorMessage(error))
       toast.push("error", errorMessage(error))
     } finally {
       setTestingLlm(false)
+    }
+  }
+
+  const handleTestEmbedding = async () => {
+    setTestingEmbedding(true)
+    setEmbeddingResult(null)
+    setEmbeddingError("")
+    try {
+      const result = await adminTestEmbedding(embeddingTextA.trim(), embeddingTextB.trim())
+      setEmbeddingResult(result)
+      toast.push("success", "向量模型调用完成")
+    } catch (error) {
+      setEmbeddingError(errorMessage(error))
+      toast.push("error", "向量模型测试失败")
+    } finally {
+      setTestingEmbedding(false)
+    }
+  }
+
+  const handleTestRecognition = async () => {
+    if (!recognitionFile) return
+    setTestingRecognition(true)
+    setRecognitionResult(null)
+    setRecognitionError("")
+    try {
+      setRecognitionResult(await adminTestRecognition(recognitionFile))
+      toast.push("success", "图片识别调用完成")
+    } catch (error) {
+      setRecognitionError(errorMessage(error))
+      toast.push("error", "图片识别测试失败")
+    } finally {
+      setTestingRecognition(false)
     }
   }
 
@@ -849,10 +924,40 @@ export default function AdminPage() {
         <>
           <header className="mb-6">
             <h1 className="text-2xl font-semibold tracking-tight text-slate-900">测试工具</h1>
-            <p className="mt-1 text-sm text-slate-500">仅管理员可用。测试结果不会暴露密钥；测试商品不会出现在买家搜索中。</p>
+            <p className="mt-1 text-sm text-slate-500">仅管理员可用。模型测试会调用已配置的服务并产生用量；结果不包含密钥或原始向量。</p>
           </header>
 
           <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+            <section className="card p-6 xl:col-span-3">
+              <div className="flex items-center justify-between gap-3">
+                <div className="flex items-center gap-2 text-slate-900">
+                  <Activity className="w-5 h-5 text-brand-600" />
+                  <h2 className="font-semibold">模型配置与商品向量状态</h2>
+                </div>
+                <button className="btn-secondary btn-sm" onClick={loadDiagnostics} disabled={diagnosticsLoading}>
+                  <RefreshCw className="w-4 h-4" />
+                  {diagnosticsLoading ? "刷新中…" : "刷新状态"}
+                </button>
+              </div>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-3 gap-4 text-sm">
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <p className="font-medium text-slate-700">询盘大模型</p>
+                  <p className="mt-1 text-slate-600">{llmStatus ? `${llmStatus.model} · ${llmStatus.llm_available ? "已配置" : "未配置"}` : "状态不可用"}</p>
+                </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <p className="font-medium text-slate-700">向量模型</p>
+                  <p className="mt-1 text-slate-600">{embeddingStatus ? `${embeddingStatus.model} · ${embeddingStatus.configured ? "已配置" : "未配置"}` : "状态不可用"}</p>
+                  {embeddingStatus && <p className="mt-2 text-xs text-slate-500">活跃商品 {embeddingStatus.stats.total} · 已完成 {embeddingStatus.stats.completed} · 待处理 {embeddingStatus.stats.pending} · 处理中 {embeddingStatus.stats.processing} · 失败 {embeddingStatus.stats.failed}</p>}
+                </div>
+                <div className="rounded-lg bg-slate-50 p-4">
+                  <p className="font-medium text-slate-700">图片识别</p>
+                  <p className="mt-1 text-slate-600">{recognitionStatus ? `${recognitionStatus.configured ? "已配置" : "未配置"} · OCR ${recognitionStatus.ocr_model || "未设置"} · 视觉 ${recognitionStatus.vision_model || "未设置"}` : "状态不可用"}</p>
+                </div>
+              </div>
+              {diagnosticsError && <p className="mt-3 text-sm text-amber-700">部分状态读取失败，请刷新或检查后端连接。</p>}
+              <p className="mt-3 text-xs text-slate-500">“已配置”只表示密钥和地址存在；请运行下方调用测试确认服务可用。</p>
+            </section>
+
             <section className="card p-6">
               <div className="flex items-center gap-2 text-slate-900">
                 <Mail className="w-5 h-5 text-brand-600" />
@@ -929,7 +1034,7 @@ export default function AdminPage() {
                 className="input mt-4 min-h-32 resize-y"
                 value={testPrompt}
                 maxLength={2000}
-                onChange={e => setTestPrompt(e.target.value)}
+                onChange={e => { setTestPrompt(e.target.value); setLlmResult(null); setLlmError("") }}
               />
               <button className="btn-primary mt-3 w-full" onClick={handleTestLlm} disabled={testingLlm || !testPrompt.trim()}>
                 <Bot className="w-4 h-4" />
@@ -940,6 +1045,58 @@ export default function AdminPage() {
                   {JSON.stringify(llmResult, null, 2)}
                 </pre>
               )}
+              {llmError && <p className="mt-3 text-sm text-red-700 break-words">{llmError}</p>}
+            </section>
+
+            <section className="card p-6 xl:col-span-2">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Activity className="w-5 h-5 text-brand-600" />
+                <h2 className="font-semibold">向量模型实时测试</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">用两段文本调用当前向量模型，检查维度、耗时和余弦相似度。每次点击都会发起真实调用，不使用查询缓存，也不写入商品。</p>
+              <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+                <label className="text-sm font-medium text-slate-700">文本 A
+                  <textarea className="input mt-1 min-h-24 resize-y" value={embeddingTextA} maxLength={500}
+                    onChange={e => { setEmbeddingTextA(e.target.value); setEmbeddingResult(null); setEmbeddingError("") }} />
+                </label>
+                <label className="text-sm font-medium text-slate-700">文本 B
+                  <textarea className="input mt-1 min-h-24 resize-y" value={embeddingTextB} maxLength={500}
+                    onChange={e => { setEmbeddingTextB(e.target.value); setEmbeddingResult(null); setEmbeddingError("") }} />
+                </label>
+              </div>
+              <button className="btn-primary mt-3" onClick={handleTestEmbedding}
+                disabled={testingEmbedding || !embeddingTextA.trim() || !embeddingTextB.trim()}>
+                <Activity className="w-4 h-4" />
+                {testingEmbedding ? "调用中…" : "调用向量模型"}
+              </button>
+              {embeddingResult && (
+                <div className="mt-4 rounded-lg bg-emerald-50 p-4 text-sm text-emerald-900">
+                  <p className="font-medium">调用成功 · {embeddingResult.model}</p>
+                  <p className="mt-1">维度 {embeddingResult.dimension} · 耗时 {embeddingResult.latency_ms} ms · 余弦相似度 {embeddingResult.similarity.toFixed(4)}</p>
+                  <p className="mt-2 text-xs text-emerald-800">相似度仅供诊断，不代表商品匹配质量或数据库检索已通过。</p>
+                </div>
+              )}
+              {embeddingError && <p className="mt-3 text-sm text-red-700 break-words">{embeddingError}</p>}
+            </section>
+
+            <section className="card p-6">
+              <div className="flex items-center gap-2 text-slate-900">
+                <Search className="w-5 h-5 text-brand-600" />
+                <h2 className="font-semibold">OCR＋视觉识别测试</h2>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">上传商品图片，复用卖家端的图片校验与两阶段识别。只返回建议字段，不保存商品。</p>
+              <label className="mt-4 block text-sm font-medium text-slate-700" htmlFor="admin-recognition-file">测试图片</label>
+              <input id="admin-recognition-file" type="file" accept="image/jpeg,image/png,image/webp" className="mt-2 block w-full text-sm text-slate-600"
+                disabled={testingRecognition}
+                onChange={e => { setRecognitionFile(e.target.files?.[0] || null); setRecognitionResult(null); setRecognitionError("") }} />
+              <p className="mt-2 text-xs text-slate-500">支持 JPG、PNG、WebP，最大 5 MB。</p>
+              <button className="btn-primary mt-3 w-full" onClick={handleTestRecognition}
+                disabled={testingRecognition || !recognitionFile}>
+                <Search className="w-4 h-4" />
+                {testingRecognition ? "识别中…" : "测试图片识别"}
+              </button>
+              {recognitionResult && <pre className="mt-3 max-h-80 overflow-auto rounded-lg bg-slate-950 p-3 text-xs leading-5 text-slate-100 whitespace-pre-wrap break-words">{JSON.stringify(recognitionResult, null, 2)}</pre>}
+              {recognitionError && <p className="mt-3 text-sm text-red-700 break-words">{recognitionError}</p>}
             </section>
           </div>
         </>

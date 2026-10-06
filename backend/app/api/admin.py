@@ -1,10 +1,12 @@
 import logging
 import hmac
+import math
+from time import perf_counter
 from datetime import datetime, timedelta, timezone
 from typing import Literal
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy import select, delete, or_, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from pydantic import BaseModel, Field, StrictBool, field_validator
@@ -22,10 +24,12 @@ from app.models.seller_inquiry import SellerInquiry
 from app.models.saved_product import SavedProduct
 from app.models.review import Review
 from app.services.rating import compute_seller_scores
-from app.core.config import is_llm_available
+from app.core.config import is_llm_available, is_embedding_available, settings
+from app.core.retry import embedding_api_call_with_retry
 from app.services.email import send_verification_email
 from app.services.email_verification import CODE_LIFETIME, MAX_CODE_ATTEMPTS
 from app.services.llm import analyze_inquiry
+from app.api.ai import product_recognize
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 logger = logging.getLogger(__name__)
@@ -92,6 +96,19 @@ class VerifyTestEmailRequest(TestEmailRequest):
 
 class TestLlmRequest(BaseModel):
     prompt: str
+
+
+class TestEmbeddingRequest(BaseModel):
+    text_a: str = Field(max_length=500)
+    text_b: str = Field(max_length=500)
+
+    @field_validator("text_a", "text_b")
+    @classmethod
+    def validate_text(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Test text cannot be empty")
+        return value
 
 
 class TestProductDeleteRequest(BaseModel):
@@ -282,6 +299,63 @@ async def test_llm(
         logger.exception("Admin LLM test failed")
         raise HTTPException(status_code=502, detail="LLM call failed. Check the model configuration and server logs.")
     return {"success": True, "ai_used": bool(result.get("ai_used")), "analysis": result}
+
+
+@router.post("/tests/embedding")
+async def test_embedding(
+    data: TestEmbeddingRequest,
+    _: User = Depends(require_admin),
+):
+    """Call the configured embedding provider without caching or writing vectors."""
+    if not is_embedding_available():
+        raise HTTPException(status_code=503, detail="Embedding service is not configured")
+
+    start = perf_counter()
+    try:
+        vectors = await embedding_api_call_with_retry(
+            [data.text_a, data.text_b], max_retries=0,
+        )
+        if len(vectors) != 2 or any(len(vec) != settings.EMBEDDING_DIM for vec in vectors):
+            raise ValueError("Embedding dimension mismatch")
+        if any(not isinstance(value, (int, float)) or not math.isfinite(value)
+               for vec in vectors for value in vec):
+            raise ValueError("Embedding contains non-finite values")
+        norms = [math.sqrt(math.fsum(value * value for value in vec)) for vec in vectors]
+        if any(not math.isfinite(norm) or norm == 0 for norm in norms):
+            raise ValueError("Embedding has invalid magnitude")
+        similarity = math.fsum(a * b for a, b in zip(*vectors)) / (norms[0] * norms[1])
+        if not math.isfinite(similarity):
+            raise ValueError("Embedding similarity is invalid")
+    except Exception:
+        logger.exception("Admin embedding test failed")
+        raise HTTPException(status_code=502, detail="Embedding call failed. Check the model configuration and server logs.")
+
+    return {
+        "success": True,
+        "model": settings.EMBEDDING_MODEL,
+        "dimension": settings.EMBEDDING_DIM,
+        "similarity": round(max(-1.0, min(1.0, similarity)), 4),
+        "latency_ms": round((perf_counter() - start) * 1000),
+    }
+
+
+@router.get("/tests/recognition/status")
+async def recognition_status(_: User = Depends(require_admin)):
+    return {
+        "configured": bool(settings.AI_VISION_API_KEY and settings.AI_VISION_BASE_URL
+                           and settings.AI_OCR_MODEL and settings.AI_VISION_MODEL),
+        "ocr_model": settings.AI_OCR_MODEL,
+        "vision_model": settings.AI_VISION_MODEL,
+    }
+
+
+@router.post("/tests/recognition")
+async def test_recognition(
+    file: UploadFile = File(...),
+    admin: User = Depends(require_admin),
+):
+    """Run the same validated, rate-limited two-stage recognition used by sellers."""
+    return await product_recognize(file, admin)
 
 
 @router.post("/tests/products")
